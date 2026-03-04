@@ -1,6 +1,5 @@
 use std::fmt;
 
-
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     IntType,
@@ -15,7 +14,7 @@ pub enum TokenType {
     Mul,
     Sub,
     Div,
-    OpenParen,  
+    OpenParen,
     CloseParen,
     OpenScope,
     CloseScope,
@@ -45,26 +44,32 @@ pub enum TokenType {
     Remainder,
     Address,
     Access,
+    Asm,
+    Func,
+    Colon,
     Semi,
 }
 #[derive(Clone, Debug)]
 pub struct Token {
     pub token: TokenType,
-    pub value: Option<String>
+    pub value: Option<String>,
 }
 
 impl fmt::Display for Tokenizer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (index, token)  in self.m_res.iter().enumerate() {
+        for (index, token) in self.m_res.iter().enumerate() {
             let _ = match &token.value {
-                Some(v) => write!(f, "Token {}: type: {:?}, value: \"{}\"\n", index, token.token, v),
+                Some(v) => write!(
+                    f,
+                    "Token {}: type: {:?}, value: \"{}\"\n",
+                    index, token.token, v
+                ),
                 None => write!(f, "Token {}: type: {:?}, value: None\n", index, token.token),
             };
         }
         Ok(())
     }
 }
-
 
 pub struct Tokenizer {
     m_index: usize,
@@ -74,25 +79,19 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
-
     pub fn new(file: String) -> Self {
-        Tokenizer { 
+        Tokenizer {
             m_index: 0,
             m_src: file.chars().collect(),
             m_buf: String::new(),
             m_res: Vec::new(),
-
         }
     }
 
-    fn push_token(&mut self, token: TokenType,value: Option<String>) {
-        let x = Token {
-            token,
-            value,
-        };
+    fn push_token(&mut self, token: TokenType, value: Option<String>) {
+        let x = Token { token, value };
         self.m_res.push(x);
     }
-
 
     fn peek(&self, offset: usize) -> char {
         let pos: usize = self.m_index + offset;
@@ -111,7 +110,7 @@ impl Tokenizer {
     }
 
     pub fn tokenize(&mut self) {
-        while self.m_index <= self.m_src.len()  - 1 {
+        while self.m_index <= self.m_src.len() - 1 {
             if self.peek(0).is_alphabetic() {
                 let v = self.consume();
                 self.m_buf.push(v);
@@ -133,12 +132,13 @@ impl Tokenizer {
                     "void" => self.push_token(TokenType::Void, None),
                     "return" => self.push_token(TokenType::Return, None),
                     "struct" => self.push_token(TokenType::Struct, None),
+                    "asm" => self.push_token(TokenType::Asm, None),
+                    "fn" => self.push_token(TokenType::Func, None),
                     // we think its variable
                     _ => self.push_token(TokenType::Var, Some(self.m_buf.clone())),
-                    }
+                }
                 self.m_buf = "".to_string();
-            } 
-            else if self.peek(0).is_numeric() {
+            } else if self.peek(0).is_numeric() {
                 let v = self.consume();
                 self.m_buf.push(v);
                 while self.peek(0).is_numeric() {
@@ -147,21 +147,24 @@ impl Tokenizer {
                 }
                 self.push_token(TokenType::Num, Some(self.m_buf.clone()));
                 self.m_buf = "".to_string();
-            } 
-
-            else {
+            } else {
                 let smth = self.consume();
                 match smth {
+                    ':' => self.push_token(TokenType::Colon, None),
                     '%' => self.push_token(TokenType::Remainder, None),
                     '\'' => {
                         let character = self.consume();
+                        println!("char: {:?}",character);
                         if character.is_ascii() {
-                            self.push_token(TokenType::CharValue, Some((character as u8).to_string()));
+                            self.push_token(
+                                TokenType::CharValue,
+                                Some((character as u8).to_string()),
+                            );
                         } else {
                             panic!("trying to get ascii of unkown value");
                         }
                         self.consume();
-                    } 
+                    }
                     '.' => {
                         self.push_token(TokenType::Dot, None);
                     }
@@ -172,29 +175,29 @@ impl Tokenizer {
                         } else {
                             self.push_token(TokenType::Eq, None);
                         }
-                    },
+                    }
                     ';' => self.push_token(TokenType::Semi, None),
                     '+' => {
-                            if self.peek(0) == '+' {
-                                self.push_token(TokenType::Inc, Some("++".to_string()));
-                                self.consume();
-                            } else {
-                                self.push_token(TokenType::Add, Some('+'.to_string()))
-                            }
-                        },
+                        if self.peek(0) == '+' {
+                            self.push_token(TokenType::Inc, Some("++".to_string()));
+                            self.consume();
+                        } else {
+                            self.push_token(TokenType::Add, Some('+'.to_string()))
+                        }
+                    }
                     '-' => {
-                            if self.peek(0) == '>' {
-                                self.consume();
-                                self.push_token(TokenType::Access, None);
-                                continue;
-                            }
-                            if self.peek(0) == '-' {
-                                self.push_token(TokenType::Dec, Some("--".to_string()));
-                                self.consume();
-                            } else {
-                                self.push_token(TokenType::Sub, Some('-'.to_string()))
-                            }
-                        },
+                        if self.peek(0) == '>' {
+                            self.consume();
+                            self.push_token(TokenType::Access, None);
+                            continue;
+                        }
+                        if self.peek(0) == '-' {
+                            self.push_token(TokenType::Dec, Some("--".to_string()));
+                            self.consume();
+                        } else {
+                            self.push_token(TokenType::Sub, Some('-'.to_string()))
+                        }
+                    }
                     '&' => self.push_token(TokenType::Address, None),
                     '*' => self.push_token(TokenType::Mul, Some('*'.to_string())),
                     '/' => self.push_token(TokenType::Div, Some('/'.to_string())),
@@ -243,5 +246,5 @@ impl Tokenizer {
                 self.m_buf = "".to_string();
             }
         }
-    } 
+    }
 }

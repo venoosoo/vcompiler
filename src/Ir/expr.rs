@@ -1,69 +1,66 @@
-use crate::Tokenizer::Token;
-
 
 #[derive(Debug, Clone)]
-pub(crate) enum RpnExpr {
-    PushNum(PushNum),
-    PushVar(PushVar),
-    Operator(Operator),
-    Function(Function),
-    Negative(Negative),
-    GetArrayValue(GetArrayValue),
-    Deref(Deref),
-    GetAddr(GetAddr),
-    GetSizeOf(GetSizeOf),
-    GetStructValue(GetStructValue),
+pub enum Expr {
+    Number(i64),
+    Float(f64),
+    Variable(String),
+
+    Binary {
+        op: BinOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+    },
+
+    Call {
+        name: String,
+        args: Vec<Expr>,
+    },
+
+    StructInit {
+        struct_name: Option<String>,
+        fields: Vec<(String, Expr)>
+    },
+
+    StructMember {
+        base: Box<Expr>,
+        name: String,
+    },
+
+    Deref(Box<Expr>),
+    AddressOf(Box<Expr>),
+
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+    },
 }
 
 
 #[derive(Debug, Clone)]
-pub(crate) struct GetStructValue {
-    pub(crate) var_name: String,
-    pub(crate) struct_value_name: String,
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    Neq,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    And,
+    Or,
 }
 
 
 #[derive(Debug, Clone)]
-pub(crate) struct GetSizeOf {
-    pub(crate) var: Token,
-}
-
-
-#[derive(Debug, Clone)]
-pub(crate) struct GetAddr {
-    pub(crate) var: Token,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Deref {
-    pub(crate) var: Token,
-    pub(crate) stack_depth: u32,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct GetArrayValue {
-    pub(crate) name: Token,
-    pub(crate) index: Token,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Negative {
-    pub(crate) data: Token,
-}
-#[derive(Debug, Clone)]
-pub(crate) struct PushNum {
-    pub(crate) data: Token,
-}
-#[derive(Debug, Clone)]
-pub(crate) struct PushVar {
-    pub(crate) data: Token,
-}
-#[derive(Debug, Clone)]
-pub(crate) struct Operator {
-    pub(crate) data: Token,
-}
-#[derive(Debug, Clone)]
-pub(crate) struct Function {
-    pub(crate) name: Token,
-    pub(crate) args: Vec<Token>,
+pub enum UnaryOp {
+    Neg,
+    Not,
 }

@@ -1,50 +1,29 @@
 use std::collections::HashMap;
 
-use crate::Tokenizer::{Token, TokenType};
-use crate::Ir::stmt::{Arg, StructArg, TypeInfo};
+use crate::{Ir::{Stmt, stmt::{Arg, StructField, Type}}, Tokenizer::TokenType};
 
 
-#[derive(Debug)]
-pub struct ExprStackHelper {
-    pub stack: Vec<ExprStack>,
-
-}
-
-#[derive(Debug)]
-pub(crate) struct ExprStack {
-    pub(crate) reg: String,
-    pub(crate) var_type: TokenType,
-    pub(crate) pointer_depth: u32,
-}
-#[derive(Debug)]
-// ????????
-pub(crate) struct ArrData {
-    pub(crate) size: u32,
-}
-#[derive(Debug)]
-pub(crate) struct VarStructData {
-    pub(crate) struct_name: String,
-}
 #[derive(Debug)]
 pub(crate) struct VarData {
-    pub(crate) stack_pos: i32,
-    pub(crate) scope_depth: usize,
-    pub(crate) var_type: TokenType,
-    pub(crate) arr_data: Option<ArrData>,
-    pub(crate) struct_data: Option<VarStructData>,
-    pub(crate) pointer_depth: u32,
+    pub(crate) stack_pos: usize,
+    pub(crate) var_type: Type,
 }
-
 
 #[derive(Debug, Clone)]
 pub(crate) struct FuncData {
-    pub(crate) args: Vec<Arg>,
+    pub(crate) args: Vec<Stmt>,
     // return type and pointer depth
-    pub(crate) return_type: TypeInfo,
+    pub(crate) return_type: Type,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct StructData {
-    pub(crate) elements: HashMap<String, StructArg>,
-    pub(crate) element_size: u32,
+    pub(crate) elements: HashMap<String, StructField>,
+    pub(crate) element_size: usize,
+}
+
+#[derive(Clone)]
+pub enum Addr {
+    Stack(isize),      // [rbp - offset]
+    Reg(String), // register holds computed address
 }

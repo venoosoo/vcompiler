@@ -1,472 +1,503 @@
+
+
 use super::*;
 
 use crate::Ir::stmt::*;
-
-use crate::Ir::expr::PushNum;
-
+use crate::Ir::expr::Expr;
 
 impl Parser {
-    pub fn parse_stmt(&mut self) -> Option<Stmt> {
-        if Parser::is_type(self.peek(0)) {
-            let type_token = self.consume(); 
-            let var_token  = self.consume();
-
-            // pointer
-            if var_token.token == TokenType::Mul {
-                let mut stack_depth: u32 = 1;
-                while self.peek(0).token == TokenType::Mul {
-                    stack_depth += 1;
-                    self.consume();
-                }
-                let var_name = self.consume();
-                if self.peek(0).token == TokenType::OpenParen {
-                    return self.parse_func(var_name, TypeInfo { var_type: type_token.token, pointer_depth: stack_depth });
-                }
-
-                if self.peek(0).token == TokenType::Eq {
-                    let expr = self.eval_expr();
-                    if self.peek(0).token != TokenType::Semi {
-                        panic!("excpected semi colon");
-                    }
-                    self.consume();
-                    let res = CreatePointer {
-                        type_: type_token.token,
-                        var: var_name.value.unwrap(),
-                        stmt: expr,
-                        pointer_depth: stack_depth,
-                    };
-                    return Some(Stmt::CreatePointer(res))
-
-                } else if self.peek(0).token == TokenType::Semi {
-                    self.consume();
-                    let mut res: Vec<RpnExpr> = Vec::new();
-                    let expr = RpnExpr::PushNum(PushNum { data: Token { token: TokenType::Num, value: Some("0xDEADBEEFDEADBEEF".to_string()) } });
-                    res.push(expr);
-                    let some =  CreatePointer { 
-                        type_:TokenType::Num, 
-                        var: var_name.value.unwrap(), 
-                        stmt: res,
-                        pointer_depth: stack_depth,
-                    };
-                    return Some(Stmt::CreatePointer(some));
-
+    
+    pub fn is_type(&self,token: &Token) -> bool {
+        match token.token {
+            TokenType::IntType => true,
+            TokenType::CharType => true,
+            TokenType::LongType => true,
+            TokenType::ShortType => true,
+            TokenType::Void => true,
+            TokenType::Var => {
+                if let Some(name) = &token.value {
+                    self.types.contains(name)
+                } else {
+                    false
                 }
             }
-
-            //init array 
-            if self.peek(0).token == TokenType::OpenBracket {
-                self.consume();
-                let arr_size = self.consume();
-                self.consume();
-                let mut data: Vec<Token> = Vec::new();
-                if self.peek(0).token == TokenType::Eq {
-                    self.consume();
-                    self.consume();
-                    while self.peek(0).token != TokenType::CloseScope {
-                        let num = self.consume();
-                        if self.peek(0).token == TokenType::Coma {
-                            self.consume();
-                        }
-                        data.push(num);
-
-                    }
-                    self.consume();
-                }
-                let init_array = InitArray {
-                    name: var_token,
-                    arr_type: type_token,
-                    size: arr_size,
-                    data: data,
-                };
-
-                if self.peek(0).token != TokenType::Semi {
-                    panic!("Expected semi colon");
-                }
-                self.consume();
-
-                return Some(Stmt::InitArray(init_array));
-            }
-
-            
-
-            if self.peek(0).token == TokenType::Semi {
-                self.consume();
-                let some =  PushNum { data: Token { token: TokenType::Num, value: Some("0".to_string()) } };
-                let expr = RpnExpr::PushNum(some);
-                let mut res: Vec<RpnExpr> = Vec::new();
-                res.push(expr);
-
-                let new_var = CreateVar {
-                    Type: type_token.token,
-                    var: var_token.value.clone().unwrap(),
-                    stmt: res,
-                };
-                
-                return Some(Stmt::CreateVar(new_var));
-            }
-            // create var
-            if self.peek(0).token == TokenType::Eq {
-                self.consume(); // Consume '='
-
-
-                let res: Vec<RpnExpr> = self.eval_expr();
-                
-                if self.peek(0).token != TokenType::Semi {
-                    panic!("Expected semi colon");
-                }
-                self.consume();
-                let new_var = CreateVar {
-                    Type: type_token.token,
-                    var: var_token.value.clone().unwrap(),
-                    stmt: res,
-                };
-                
-                return Some(Stmt::CreateVar(new_var));
-            }
-            // init function
-            else if self.peek(0).token == TokenType::OpenParen {
-                // the pointer depth will always be zero because if we had * in return type
-                // it would be in another section
-                return self.parse_func(var_token, TypeInfo { var_type: type_token.token, pointer_depth: 0 });
-
-            }
+            _ => false,
         }
-
-        if self.peek(0).token == TokenType::Mul {
-            self.consume();
-            let mut pointer_depth: u32 = 1;
-            while self.peek(0).token == TokenType::Mul {
-                self.consume();
-                pointer_depth += 1;
-            }
-            let var = self.consume();
-            if self.peek(0).token == TokenType::Eq {
-                self.consume();
-                let expr = self.eval_expr();
-                if self.peek(0).token != TokenType::Semi {
-                    panic!("no semi colon");
-                }
-                self.consume();
-                let res = ChangePtrValue {
-                    var: var.value.unwrap(),
-                    stmt: expr,
-                    pointer_depth,
-                };
-                return Some(Stmt::ChangePtrValue(res));
-
-            } else {
-                panic!("strange syntax pointer");
-            }
-        }
-
-        if self.peek(0).token == TokenType::OpenScope {
-            self.consume();
-            let res = OpenScope { };
-            return Some(Stmt::OpenScope(res));
-        }
-        if self.peek(0).token == TokenType::CloseScope {
-            self.consume();
-            let res = CloseScope {  };
-            return Some(Stmt::CloseScope(res));
-        }
-        if self.peek(0).token == TokenType::Var {
-            let var = self.consume();
-
-
-            if self.peek(0).token == TokenType::Access {
-                self.consume();
-                let struct_var = self.consume();
-                if self.peek(0).token == TokenType::Eq {
-                    self.consume();
-                    let expr = self.eval_expr();
-                    if self.peek(0).token != TokenType::Semi {
-                        panic!("excpected semi colon");
-                    }
-                    self.consume();
-                    let res = ChangePtrStructValue {
-                        struct_name: var.value.unwrap(),
-                        value_name: struct_var.value.unwrap(),
-                        expr,
-                    };
-                    return Some(Stmt::ChangePtrStructValue(res))
-                }
-
-            }
-
-
-            if self.peek(0).token == TokenType::Dot {
-                self.consume();
-                let struct_var = self.consume();
-                if self.peek(0).token == TokenType::Eq {
-                    self.consume();
-                    let expr = self.eval_expr();
-                    if self.peek(0).token != TokenType::Semi {
-                        panic!("excpected semi colon");
-                    }
-                    self.consume();
-                    let res = ChangeStructValue {
-                        struct_name: var.value.unwrap(),
-                        value_name: struct_var.value.unwrap(),
-                        expr,
-                    };
-                    return Some(Stmt::ChangeStructValue(res))
-                }
-            }
-
-
-            if var.value.as_deref() == Some("asm") {
-                let mut asm_code: Vec<String> = Vec::new();
-                self.consume();
-                while self.peek(0).token != TokenType::CloseScope {
-                    let str = self.consume();
-                    asm_code.push(str.value.unwrap());
-                }
-                self.consume();
-                let res = AsmCode {
-                    code: asm_code,
-                };
-                return Some(Stmt::AsmCode(res))
-            }
-            // change array element
-            if self.peek(0).token == TokenType::OpenBracket {
-                self.consume();
-                let element = self.consume();
-                self.consume();
-                if self.peek(0).token == TokenType::Eq {
-                    self.consume();
-                    let res = self.eval_expr();
-                    if self.peek(0).token != TokenType::Semi {
-                        panic!("Expected semi colon");
-                    }
-                    self.consume();
-                    let change_arr_elemnet = ChangeArrElement {
-                        arr_name: var,
-                        element,
-                        expr: res,
-                    };
-                    return Some(Stmt::ChangeArrElement(change_arr_elemnet));
-                }
-            }
-
-
-            if self.peek(0).token == TokenType::Eq {
-                self.consume();
-                let res = self.eval_expr();
-                if self.peek(0).token != TokenType::Semi && self.peek(0).token != TokenType::CloseParen {
-                    panic!("Expected semi colon or ')'");
-                }
-                self.consume();
-                let change_var = ChangeVar {
-                    stmt: res,
-                    var: var.value.unwrap(),
-                };
-                return Some(Stmt::ChangeVar(change_var));
-            }
-            if self.peek(0).token == TokenType::Inc {
-                self.consume();
-                if self.peek(0).token != TokenType::CloseParen {
-                    if self.peek(0).token != TokenType::Semi {
-                        println!("excpected ;");
-                    }
-                    else {
-                        self.consume();
-                    }
-                }
-                let inc_var = IncVar {
-                    var
-                };
-                return  Some(Stmt::IncVar(inc_var));
-            }
-            else if self.peek(0).token == TokenType::Dec {
-                self.consume();
-                if self.peek(0).token != TokenType::CloseParen {
-                    if self.peek(0).token != TokenType::Semi {
-                        println!("excpected ;");
-                    }
-                    else {
-                        self.consume();
-                    }
-                }
-                self.consume();
-                let dec_var = DecVar {
-                    var
-                };
-                return  Some(Stmt::DecVar(dec_var));
-            }
-            // function call
-            else if self.peek(0).token == TokenType::OpenParen {
-                let func_call = self.gen_init_func(var);
-                self.consume();
-                return Some(Stmt::FunctionCall(func_call));
-                
-            }
-        }
-        if self.peek(0).token == TokenType::If {
-            self.consume();
-            let res = self.eval_expr();
-            let mut expr_arr: Vec<Stmt> = Vec::new(); 
-            while self.peek(0).token != TokenType::CloseScope && self.peek(0).token != TokenType::Else {
-                let expr = self.parse_stmt().unwrap();
-                expr_arr.push(expr);
-            }
-            if self.peek(0).token != TokenType::Else {
-                    let expr = self.parse_stmt().unwrap();
-                    expr_arr.push(expr);
-                }
-            let mut else_expr_arr: Vec<Stmt> = Vec::new(); 
-            if self.m_tokens.len() >= 1{
-                if self.peek(0).token == TokenType::Else {
-                    self.consume();
-                    while self.peek(0).token != TokenType::CloseScope {
-                        let expr = self.parse_stmt().unwrap();
-                        else_expr_arr.push(expr);
-                    }
-                    let expr = self.parse_stmt().unwrap();
-                    else_expr_arr.push(expr);
-                    
-                }
-            }
-            let if_var = IfStmt {
-                expr: res,
-                data: expr_arr,
-                else_data: else_expr_arr,
-            };
-            return Some(Stmt::IfStmt(if_var));
-        }
-        if self.peek(0).token == TokenType::While {
-            self.consume();
-            let res = self.eval_expr();
-            let mut expr_arr: Vec<Stmt> = Vec::new();
-            while self.peek(0).token != TokenType::CloseScope {
-                let expr = self.parse_stmt().unwrap();
-                expr_arr.push(expr);
-            }
-            let while_var = WhileStmt {
-                expr: res,
-                data: expr_arr,
-            };
-            return Some(Stmt::WhileStmt(while_var));
-        }
-        if self.peek(0).token == TokenType::For {
-            self.consume();
-            if self.peek(0).token != TokenType::OpenParen {
-                panic!("excpected '('");
-            }
-            self.consume();
-            let first_expr = Box::new(self.parse_stmt().unwrap());
-            let second_expr = self.eval_expr();
-            self.consume();
-            let third_expr = Box::new(self.parse_stmt().unwrap());
-            if self.peek(0).token != TokenType::CloseParen {
-                panic!("excpected ')'");
-            }
-            self.consume();
-            let mut expr_arr: Vec<Stmt> = Vec::new(); 
-            while self.peek(0).token != TokenType::CloseScope {
-                let expr = self.parse_stmt().unwrap();
-                expr_arr.push(expr);
-            }
-            let for_var = ForStmt {
-                expr1: first_expr,
-                expr2: second_expr,
-                expr3: third_expr,
-                data: expr_arr,
-            };
-            return Some(Stmt::ForStmt(for_var));
-        }
-
-        if self.peek(0).token == TokenType::Struct {
-            self.consume();
-            let struct_name = self.consume();
-            if self.peek(0).token == TokenType::OpenScope {
-                //init of struct
-                self.consume();
-                let mut counter = 0;
-                let mut elements: HashMap<String, StructArg> = HashMap::new();
-                while self.peek(0).token != TokenType::CloseScope {
-                    let arg_type = self.consume();
-                    let mut pointer_depth = 0;
-                    if self.peek(0).token == TokenType::Mul {
-                        pointer_depth += 1;
-                        self.consume();
-                        while self.peek(0).token == TokenType::Mul {
-                            pointer_depth += 1;
-                            self.consume();
-                        }
-                    }
-
-                    let name = self.consume();
-                    if self.peek(0).token != TokenType::Semi {
-                        panic!("expceted semi colon");
-                    }
-                    self.consume();
-                    let res = StructArg {
-                        name: name.clone(),
-                        arg_type: arg_type,
-                        pointer_depth,
-                        pos: counter,
-                    };
-                    counter += 1;
-                    elements.insert(name.value.unwrap(), res);
-                }
-                self.consume(); // CloseScope
-                let res = InitStruct {
-                    name: struct_name.value.unwrap(),
-                    elements,
-                };
-                if self.peek(0).token != TokenType::Semi {
-                    panic!("excpected semi colon");
-                }
-                self.consume();
-                return Some(Stmt::InitStruct(res));
-            }
-            else {
-                let mut pointer_depth = 0;
-                let mut expr: Option<Vec<RpnExpr>> = None;
-                while self.peek(0).token == TokenType::Mul {
-                    self.consume();
-                    pointer_depth += 1;
-                }
-                let var_name = self.consume();
-                if self.peek(0).token == TokenType::Eq {
-                    self.consume();
-                    if self.peek(0).token == TokenType::OpenScope {
-                        todo!()
-                    }
-                    else {
-                        expr = Some(self.eval_expr());
-                    }
-
-                }
-                let res = CreateStruct {
-                    var_name: var_name.value.unwrap(),
-                    struct_name: struct_name.value.unwrap(),
-                    pointer_depth,
-                    expr,
-                };
-                if self.peek(0).token != TokenType::Semi {
-                    panic!("nigga place that semi colon");
-                }
-                self.consume();
-                
-                return Some(Stmt::CreateStruct(res))
-                
-            }
-        }
-
-        if self.peek(0).token == TokenType::Return {
-            self.consume();
-            let expr = self.eval_expr();
-            if self.peek(0).token != TokenType::Semi {
-                panic!("excpected ;");
-            }
-            self.consume();
-            let return_ = Ret {
-                expr: expr,
-                func_name: self.func_name.clone(),
-            };
-            return Some(Stmt::Ret(return_));
-        }
-        None
     }
+
+    pub fn check_ptr(&mut self) -> usize {
+        let mut index = 0;
+        while self.m_index < self.m_tokens.len()
+        && self.peek(0).token == TokenType::Mul
+        {
+            index += 1;
+        }
+        index
+    }
+
+    
+    pub fn parse_ptr(&mut self, mut ty: Type) -> Type {
+        while self.m_index < self.m_tokens.len()
+        && self.peek(0).token == TokenType::Mul
+        {
+            self.consume();
+            ty = Type::Pointer(Box::new(ty));
+        }
+        ty
+    }
+    pub fn parse_array(&mut self, mut ty: Type) -> Type {
+        while self.m_index < self.m_tokens.len()
+        && self.peek(0).token == TokenType::OpenBracket
+        {
+            self.consume();
+            let size = self.consume();
+            self.consume();
+            ty = Type::Array(Box::new(ty), size.value.unwrap().parse::<usize>().unwrap());
+        }
+        ty
+    }
+
+    pub fn get_type(&mut self) -> Type {
+        let mut pointer_depth = 0;
+
+        while self.peek(0).token == TokenType::Mul {
+            self.consume();
+            pointer_depth += 1;
+        }
+
+        let token = self.consume();
+
+        let mut ty = if token.token == TokenType::Var {
+            let name = self.types.get(&token.value.unwrap()).unwrap();
+            Type::Struct(name.to_string())
+        } else {
+            Type::Primitive(token.token)
+        };
+        for _ in 0..pointer_depth {
+            ty = Type::Pointer(Box::new(ty));
+        }
+
+        ty
+    }
+    
+    pub fn parse_declaration(&mut self) -> Option<Stmt> {
+        let ty = self.get_type();
+        let ty = self.parse_ptr(ty);
+        let var_name = self.consume();
+        let ty = self.parse_array(ty);
+        
+        let mut expr: Option<Expr> = None;
+        if self.peek(0).token == TokenType::Eq {
+            self.consume();
+            expr = Some(self.parse_expr());
+        }
+        return Some(Stmt::Declaration(Declaration { 
+            name: var_name.value.unwrap(),
+            ty: ty,
+            initializer: expr,
+        }))
+    }
+
+
+    fn parse_struct_init(&mut self) -> Option<Stmt> {
+        self.consume(); // 'struct'
+
+        let struct_name = self.consume().value.unwrap();
+
+        self.expect(TokenType::OpenScope);
+
+        let mut fields: Vec<StructField> = Vec::new();
+        let mut offset: usize = 0;
+
+        while self.peek(0).token != TokenType::CloseScope {
+            let base_token = self.consume();
+
+            let mut ty = if self.is_type(&base_token) && base_token.token != TokenType::Var {
+                Type::Primitive(base_token.token)
+            } else if self.is_type(&base_token) && base_token.token == TokenType::Var {
+                Type::Struct(base_token.value.unwrap())
+            } else {
+                panic!("Expected type in struct field");
+            };
+
+            ty = self.parse_ptr(ty);
+
+            let field_name = self.consume().value.unwrap();
+
+            ty = self.parse_array(ty);
+
+            self.expect(TokenType::Semi);
+
+            let field_size = self.size_of(&ty);
+
+            fields.push(StructField {
+                name: field_name,
+                ty: ty.clone(),
+                offset,
+            });
+
+            offset += field_size;
+        }
+
+        self.expect(TokenType::CloseScope);
+
+        let struct_size = offset;
+
+        let def = StructDef {
+            name: struct_name.clone(),
+            fields,
+            size: struct_size,
+        };
+
+        // register struct in type table
+        self.types.insert(struct_name.clone());
+
+        Some(Stmt::InitStruct(def))
+    }
+
+    fn check_assignment_start(&self) -> bool {
+        let mut i = 0;
+
+        // allow leading *
+        while self.peek(i).token == TokenType::Mul {
+            i += 1;
+        }
+
+        // must start with identifier
+        if self.peek(i).token != TokenType::Var {
+            return false;
+        }
+
+        i += 1;
+
+        loop {
+            match self.peek(i).token {
+                TokenType::Dot => {
+                    i += 1;
+                    if self.peek(i).token != TokenType::Var {
+                        return false;
+                    }
+                    i += 1;
+                }
+
+                TokenType::OpenBracket => {
+                    i += 1;
+
+                    // skip until closing bracket
+                    let mut depth = 1;
+                    while depth > 0 {
+                        match self.peek(i).token {
+                            TokenType::OpenBracket => depth += 1,
+                            TokenType::CloseBracket => depth -= 1,
+                            _ => {}
+                        }
+                        i += 1;
+                    }
+                }
+
+                TokenType::Eq => {
+                    return true;
+                }
+
+                _ => {
+                    return false;
+                }
+            }
+        }
+    }
+
+    fn parse_assignment(&mut self) -> Option<Stmt> {
+        let mut pointer_depth = 0;
+        while self.peek(0).token == TokenType::Mul {
+            self.consume();
+            pointer_depth += 1;
+        }
+
+        let var_name = self.consume().value.unwrap();
+        let mut lvalue = LValue::Variable(var_name);
+
+        for _ in 0..pointer_depth {
+            lvalue = LValue::Deref(Box::new(lvalue));
+        }
+
+        loop {
+            match self.peek(0).token {
+                TokenType::Dot => {
+                    self.consume();
+                    let field = self.consume().value.unwrap();
+                    lvalue = LValue::Field {
+                        base: Box::new(lvalue),
+                        name: field,
+                    };
+                }
+
+                TokenType::OpenBracket => {
+                    self.consume();
+                    let index = self.parse_expr();
+                    self.expect(TokenType::CloseBracket);
+
+                    lvalue = LValue::Index {
+                        base: Box::new(lvalue),
+                        index: Box::new(index),
+                    };
+                }
+
+                _ => break,
+            }
+        }
+
+        self.expect(TokenType::Eq);
+
+        let value = self.parse_expr();
+        self.expect(TokenType::Semi);
+
+        Some(Stmt::Assignment { target: lvalue, value })
+    }
+
+
+    pub fn parse_stmt(&mut self) -> Option<Stmt> {
+        let token = self.peek(0);
+        match token.token {
+            TokenType::If => return self.parse_if(),
+            TokenType::While => return self.parse_while(),
+            TokenType::For => return  self.parse_for(),
+            TokenType::OpenScope => return self.parse_scope(),
+            TokenType::Return => return self.parse_ret(),
+            TokenType::Asm => return self.parse_asm_stmt(),
+            TokenType::Func => return self.parse_func_init(),
+            TokenType::Struct => return self.parse_struct_init(),
+            ty if self.is_type(&token) => {
+                let stmt = self.parse_declaration();
+                self.expect(TokenType::Semi);
+                return stmt;
+            },
+            _ => {
+                if self.check_assignment_start() {
+                    return self.parse_assignment();
+                }
+                return self.parse_expr_stmt();
+            }
+            
+        };
+    }
+    
+
+    
+    fn parse_scope(&mut self) -> Option<Stmt> {
+        self.consume();
+        let mut stmts: Vec<Stmt> = Vec::new();
+        while self.peek(0).token != TokenType::CloseScope {
+            let stmt = self.parse_stmt().unwrap();
+            stmts.push(stmt);
+        }
+        self.consume();
+        return Some(Stmt::Block(stmts));
+    }
+
+    fn parse_if(&mut self) -> Option<Stmt> {
+        self.consume();
+        let condition = self.parse_expr();
+        let if_block = Box::new(self.parse_stmt().unwrap()); // should be block
+        let mut else_block: Option<Box<Stmt>> = None;
+        if self.peek(0).token == TokenType::Else {
+            self.consume();
+            let else_data = Box::new(self.parse_stmt().unwrap());
+            else_block = Some(else_data);
+        }
+        return Some(Stmt::If { condition, if_block, else_block })
+    }
+
+    fn parse_while(&mut self) -> Option<Stmt> {
+        self.consume();
+        let condition = self.parse_expr();
+        let body = Box::new(self.parse_stmt().unwrap());
+        return Some(Stmt::While { condition, body })
+    }
+
+    fn parse_for(&mut self) -> Option<Stmt> {
+        self.consume(); // the keyword itself
+        self.consume(); // (
+
+
+        let init = if self.is_type(&self.peek(0)) {
+            Some(Box::new(self.parse_declaration().unwrap()))
+        } else if self.peek(0).token != TokenType::Semi {
+            let expr = self.parse_expr();
+            Some(Box::new(Stmt::ExprStmt(expr)))
+        } else {
+            None
+        };
+        self.expect(TokenType::Semi);
+        let condition = if self.peek(0).token != TokenType::Semi {
+            Some(self.parse_expr())
+        } else {
+            None
+        };
+        self.expect(TokenType::Semi);
+
+
+        let update = if self.peek(0).token != TokenType::CloseParen {
+            Some(Box::new(Stmt::ExprStmt(self.parse_expr())))
+        } else {
+            None
+        };
+
+        self.consume(); // )
+        let body = Box::new(self.parse_stmt().unwrap());
+        return Some(Stmt::For { 
+            init, 
+            condition,  
+            update, 
+            body 
+        })
+    }
+
+    fn parse_asm_stmt(&mut self) -> Option<Stmt> {
+        self.consume(); // the keyword itself
+        let mut asm_code: Vec<String> = Vec::new();
+        self.consume();
+        while self.peek(0).token != TokenType::CloseScope {
+            let str = self.consume();
+            asm_code.push(str.value.unwrap());
+        }
+        self.consume();
+        return Some(Stmt::AsmCode(asm_code));
+    }
+
+    fn parse_ret(&mut self) -> Option<Stmt> {
+        self.consume(); // the keyword itself
+        let expr = if self.peek(0).token != TokenType::Semi {
+            Some(self.parse_expr())
+        } else {
+            None
+        };
+        self.expect(TokenType::Semi);
+        Some(Stmt::Return(expr))
+    }
+
+    fn parse_expr_stmt(&mut self) -> Option<Stmt> {
+        let expr = self.parse_expr();
+        self.expect(TokenType::Semi);
+        Some(Stmt::ExprStmt(expr))
+    }
+
+
+}
+
+
+
+
+
+#[test]
+fn test_single_pointer() {
+    let tokens = vec![
+        Token {token:TokenType::Mul, value: None },
+    ];
+
+    let mut parser = Parser { 
+            m_tokens: tokens,
+            m_index: 0,
+            struct_table: HashMap::new(),
+            expressions: Vec::new(),
+            types: HashSet::new(),
+            };
+
+    let result = parser.parse_ptr(Type::Primitive(TokenType::IntType));
+    println!("result: {:?}",result);
+    assert_eq!(
+        result,
+        Type::Pointer(Box::new(Type::Primitive(TokenType::IntType)))
+    );
+}
+
+#[test]
+fn test_double_pointer() {
+    let tokens = vec![
+        Token {token:TokenType::Mul, value: None },
+        Token {token:TokenType::Mul, value: None },
+    ];
+
+    let mut parser = Parser { 
+            m_tokens: tokens,
+            m_index: 0,
+            struct_table: HashMap::new(),
+            expressions: Vec::new(),
+            types: HashSet::new(), };
+
+    let result = parser.parse_ptr(Type::Primitive(TokenType::IntType));
+    println!("result: {:?}",result);
+    assert_eq!(
+        result,
+        Type::Pointer(Box::new(Type::Pointer(Box::new(Type::Primitive(TokenType::IntType)))))
+    );
+}
+
+#[test]
+fn test_array_simple() {
+    let tokens = vec![
+        Token { token: TokenType::OpenBracket, value: None },
+        Token { token: TokenType::Num, value: Some("5".to_string()) },
+        Token { token: TokenType::CloseBracket, value: None },
+    ];
+
+    let mut parser = Parser { 
+        m_tokens: tokens,
+        m_index: 0,
+        struct_table: HashMap::new(),
+        expressions: Vec::new(),
+        types: HashSet::new(),
+    };
+
+    let result = parser.parse_array(
+        Type::Primitive(TokenType::IntType)
+    );
+
+    assert_eq!(
+        result,
+        Type::Array(
+            Box::new(Type::Primitive(TokenType::IntType)),
+            5
+        )
+    );
+}
+
+#[test]
+fn test_pointer_array() {
+    let tokens = vec![
+        // for parse_ptr (pointer)
+        Token { token: TokenType::Mul, value: None },
+
+        // for parse_array
+        Token { token: TokenType::OpenBracket, value: None },
+        Token { token: TokenType::Num, value: Some("5".to_string()) },
+        Token { token: TokenType::CloseBracket, value: None },
+    ];
+
+    let mut parser = Parser { 
+        m_tokens: tokens,
+        struct_table: HashMap::new(),
+        m_index: 0,
+        expressions: Vec::new(),
+        types: HashSet::new(),
+    };
+
+    // First parse pointer
+    let ty = parser.parse_ptr(
+        Type::Primitive(TokenType::IntType)
+    );
+
+    // Then parse array
+    let result = parser.parse_array(ty);
+
+    assert_eq!(
+        result,
+        Type::Array(
+            Box::new(
+                Type::Pointer(
+                    Box::new(Type::Primitive(TokenType::IntType))
+                )
+            ),
+            5
+        )
+    );
 }

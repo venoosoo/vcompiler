@@ -8,3 +8,4 @@ test.v
 copy.asm
 main
 .vscode
+parser_result.txt

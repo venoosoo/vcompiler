@@ -1,18 +1,20 @@
 use clap::Parser as CliParser;
-use std::{fs::File, io::{Read, Write}};
+use std::{
+    fs::File,
+    io::{Read, Write},
+};
 
-mod Tokenizer;
-mod Parser;
-mod Gen;
+mod Gen; 
 mod Ir;
+mod Parser;
+mod Tokenizer;
 
 #[derive(CliParser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
-   #[arg(short, long, required = true, help = "provide file main.v")]
-   file: String,
+    #[arg(short, long, required = true, help = "provide file main.v")]
+    file: String,
 }
-
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli: Cli = Cli::parse();
@@ -22,23 +24,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::open(cli.file)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
-    println!("file contains: {}",&contents);
+    println!("file contains: {}", &contents);
 
     let mut tokenizer = Tokenizer::Tokenizer::new(contents);
     tokenizer.tokenize();
-    println!("{}",tokenizer);
+    println!("{}", tokenizer);
 
     let mut parser = Parser::Parser::new(tokenizer.m_res);
     let res = parser.parse();
-    
+
     // to lazy to make normal debug print
-    println!("parse result\n{:#?}",res);
+    let mut file = File::create("parser_result.txt")
+        .expect("Failed to create parser_result.txt");
+
+    write!(file, "parse result\n{:#?}", res)
+        .expect("Failed to write to file");
 
     let mut generator = Gen::Gen::new(res);
     let asm = generator.gen_asm()?;
     let mut file = File::create("main.asm")?;
-    file.write(asm.as_bytes())?;
-
+    let _res  = file.write(asm.as_bytes())?;
 
     Ok(())
 }
