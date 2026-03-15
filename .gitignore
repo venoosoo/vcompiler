@@ -9,3 +9,4 @@ copy.asm
 main
 .vscode
 parser_result.txt
+errors.txt
