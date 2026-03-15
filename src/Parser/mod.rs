@@ -51,9 +51,9 @@ impl Parser {
         &self.m_tokens[pos]
     }
 
-    pub fn expect(&mut self,ty: TokenType) {
+    pub fn expect(&mut self, ty: TokenType) {
         if self.peek(0).token != ty {
-            panic!("expected: {:?}\n{:?}",ty,self.m_tokens);
+            panic!("expected: {:?}\n{:?}", ty, self.m_tokens);
         }
         self.consume();
     }
@@ -83,25 +83,17 @@ impl Parser {
     }
 
     fn size_of(&self, ty: &Type) -> usize {
-    match ty {
-        Type::Primitive(TokenType::IntType) => 4,
-        Type::Primitive(TokenType::CharType) => 1,
+        match ty {
+            Type::Primitive(TokenType::IntType) => 4,
+            Type::Primitive(TokenType::CharType) => 1,
 
-        Type::Pointer(_) => 8, // assume 64-bit
+            Type::Pointer(_) => 8, // assume 64-bit
 
-        Type::Array(inner, count) => {
-            self.size_of(inner) * count
+            Type::Array(inner, count) => self.size_of(inner) * count,
+
+            Type::Struct(name) => self.struct_table.get(name).expect("Unknown struct").size,
+
+            _ => panic!("Unknown type size"),
         }
-
-        Type::Struct(name) => {
-            self.struct_table
-                .get(name)
-                .expect("Unknown struct")
-                .size
-        }
-
-        _ => panic!("Unknown type size"),
     }
-}
-
 }

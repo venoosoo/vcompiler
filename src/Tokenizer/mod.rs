@@ -154,7 +154,7 @@ impl Tokenizer {
                     '%' => self.push_token(TokenType::Remainder, None),
                     '\'' => {
                         let character = self.consume();
-                        println!("char: {:?}",character);
+                        println!("char: {:?}", character);
                         if character.is_ascii() {
                             self.push_token(
                                 TokenType::CharValue,

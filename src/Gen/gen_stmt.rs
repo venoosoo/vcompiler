@@ -4,12 +4,10 @@ use std::fmt::format;
 use super::*;
 
 use crate::Ir::expr::Expr;
-use crate::Ir::{Stmt, stmt::Declaration};
 use crate::Ir::stmt::{LValue, StructDef};
+use crate::Ir::{Stmt, stmt::Declaration};
 impl Gen {
-
-
-    fn gen_block(&mut self,data: &Vec<Stmt>) {
+    fn gen_block(&mut self, data: &Vec<Stmt>) {
         self.scopes.push(HashMap::new());
         let temp_stack_pos = self.stack_pos;
         for i in data {
@@ -23,8 +21,7 @@ impl Gen {
         let stack_pos = self.alloc_type(&data.ty);
         if let Some(expr_data) = &data.initializer {
             let reg = self.eval_expr(expr_data, None, &data.ty);
-            self.emit(format!("    mov [rbp - {}], {}",stack_pos,reg));
-
+            self.emit(format!("    mov [rbp - {}], {}", stack_pos, reg));
         }
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
@@ -37,18 +34,11 @@ impl Gen {
         current_scope.insert(data.name.clone(), var_data);
     }
 
-
-
-
-
     pub fn calc_lvalue(&mut self, target: &LValue) -> (Addr, Type) {
         match target {
             LValue::Variable(name) => {
                 let var = self.lookup_var(name);
-                (
-                    Addr::Stack(var.stack_pos as isize),
-                    var.var_type.clone(),
-                )
+                (Addr::Stack(var.stack_pos as isize), var.var_type.clone())
             }
 
             LValue::Field { base, name } => {
@@ -56,13 +46,12 @@ impl Gen {
 
                 match ty {
                     Type::Struct(struct_name) => {
-                        let layout = self.structs
+                        let layout = self
+                            .structs
                             .get(&struct_name)
                             .expect("no struct with that name");
 
-                        let field = layout.elements
-                            .get(name)
-                            .expect("no such field in struct");
+                        let field = layout.elements.get(name).expect("no such field in struct");
                         let field_type = field.ty.clone();
 
                         match addr {
@@ -73,11 +62,7 @@ impl Gen {
 
                             Addr::Reg(reg) => {
                                 // subtract offset from register base address
-                                self.emit(format!(
-                                    "    sub {}, {}",
-                                    reg,
-                                    field.offset
-                                ));
+                                self.emit(format!("    sub {}, {}", reg, field.offset));
                                 (Addr::Reg(reg), field_type)
                             }
                         }
@@ -129,27 +114,18 @@ impl Gen {
         }
     }
 
-
     fn gen_assignment(&mut self, target: &LValue, value: &Expr) {
         let (addr, ty) = self.calc_lvalue(target);
 
-        let val_reg = self.eval_expr(value,None,&ty);
+        let val_reg = self.eval_expr(value, None, &ty);
 
         match addr {
             Addr::Stack(pos) => {
-                self.emit(format!(
-                    "    mov [rbp - {}], {}",
-                    pos,
-                    val_reg
-                ));
+                self.emit(format!("    mov [rbp - {}], {}", pos, val_reg));
             }
 
             Addr::Reg(reg) => {
-                self.emit(format!(
-                    "    mov [{}], {}",
-                    reg,
-                    val_reg
-                ));
+                self.emit(format!("    mov [{}], {}", reg, val_reg));
             }
         }
     }
@@ -157,7 +133,7 @@ impl Gen {
     pub fn gen_if(&mut self, data: (&Expr, &Box<Stmt>, &Option<Box<Stmt>>)) {
         let (condition, if_block, else_block) = data;
 
-        let cond_reg = self.eval_expr(condition, None,&Type::Primitive(TokenType::LongType));
+        let cond_reg = self.eval_expr(condition, None, &Type::Primitive(TokenType::LongType));
         self.emit(format!("    cmp {}, 0", cond_reg));
 
         let id = self.get_id();
@@ -177,21 +153,26 @@ impl Gen {
         self.emit(format!("end_if_{}:", id));
     }
 
-    pub fn gen_while(&mut self, data: (&Expr,&Box<Stmt>)) {
-        let (condition,body) = data;
+    pub fn gen_while(&mut self, data: (&Expr, &Box<Stmt>)) {
+        let (condition, body) = data;
         let id = self.get_id();
-        self.emit(format!("while_{}:",id));
-        let cond_reg = self.eval_expr(condition,None,&Type::Primitive(TokenType::LongType));
-        self.emit(format!("    cmp {}, 0",cond_reg));
-        self.emit(format!("    jne end_while_{}",id));
+        self.emit(format!("while_{}:", id));
+        let cond_reg = self.eval_expr(condition, None, &Type::Primitive(TokenType::LongType));
+        self.emit(format!("    cmp {}, 0", cond_reg));
+        self.emit(format!("    jne end_while_{}", id));
         self.gen_stmt(&*body);
-        self.emit(format!("    je while_{}",id));
-        self.emit(format!("end_while_{}:",id));
+        self.emit(format!("    je while_{}", id));
+        self.emit(format!("end_while_{}:", id));
     }
 
     pub fn gen_for(
         &mut self,
-        data: (&Option<Box<Stmt>>, &Option<Expr>, &Option<Box<Stmt>>, &Box<Stmt>)
+        data: (
+            &Option<Box<Stmt>>,
+            &Option<Expr>,
+            &Option<Box<Stmt>>,
+            &Box<Stmt>,
+        ),
     ) {
         let (init, condition, update, body) = data;
 
@@ -238,7 +219,6 @@ impl Gen {
         self.emit("    ret".to_string());
     }
 
-
     pub fn gen_inline_asm(&mut self, data: &Vec<String>) {
         for i in data.iter() {
             let mut var_buf = String::new();
@@ -284,14 +264,14 @@ impl Gen {
         }
     }
 
-    pub fn gen_func(&mut self, data: (&String,&Vec<Stmt>,&Type,&Box<Stmt>)) {
-        let (name,args,ret_type,data) = data;
+    pub fn gen_func(&mut self, data: (&String, &Vec<Stmt>, &Type, &Box<Stmt>)) {
+        let (name, args, ret_type, data) = data;
         self.current_return_type = ret_type.clone();
         let func_stack_frame = calc_stack_size(&data);
-        self.emit(format!("{}:",name));
+        self.emit(format!("{}:", name));
         self.emit(format!("    push rbp"));
         self.emit(format!("    mov rbp, rsp"));
-        self.emit(format!("    sub rsp, {}",func_stack_frame));
+        self.emit(format!("    sub rsp, {}", func_stack_frame));
         self.scopes.push(HashMap::new());
         let saved_stack = self.stack_pos;
         self.compile_args(args);
@@ -309,7 +289,7 @@ impl Gen {
                     self.emit(format!("    ret"));
                 }
             }
-            _ => {},
+            _ => {}
         }
     }
 
@@ -345,25 +325,36 @@ impl Gen {
             Stmt::Block(v) => self.gen_block(v),
             Stmt::Declaration(v) => self.gen_declaration(v),
             Stmt::Assignment { target, value } => self.gen_assignment(target, value),
-            Stmt::ExprStmt(expr) => {self.eval_expr(expr, None,&Type::Primitive(TokenType::LongType));},
-            Stmt::If { condition, if_block, else_block } => {
-                self.gen_if((condition,if_block,else_block));
+            Stmt::ExprStmt(expr) => {
+                self.eval_expr(expr, None, &Type::Primitive(TokenType::LongType));
+            }
+            Stmt::If {
+                condition,
+                if_block,
+                else_block,
+            } => {
+                self.gen_if((condition, if_block, else_block));
             }
             Stmt::While { condition, body } => {
-                self.gen_while((condition,body));
+                self.gen_while((condition, body));
             }
-            Stmt::For { init, condition, update, body } => {
-                self.gen_for((init,condition,update,body));
+            Stmt::For {
+                init,
+                condition,
+                update,
+                body,
+            } => {
+                self.gen_for((init, condition, update, body));
             }
             Stmt::Return(expr) => self.gen_ret(expr),
             Stmt::AsmCode(data) => self.gen_inline_asm(data),
-            Stmt::InitFunc { name, args, ret_type, data } => {
-                self.gen_func((name,args,ret_type,data))
-            }
+            Stmt::InitFunc {
+                name,
+                args,
+                ret_type,
+                data,
+            } => self.gen_func((name, args, ret_type, data)),
             Stmt::InitStruct(struct_data) => {} // skiping because we already added it in first iteration,
         }
     }
-
-
-
 }

@@ -1,8 +1,6 @@
 use super::*;
 
 impl Parser {
-
-
     pub fn parse_args(&mut self) -> Vec<Stmt> {
         let mut res: Vec<Stmt> = Vec::new();
         self.consume(); // ( 
@@ -17,7 +15,6 @@ impl Parser {
         res
     }
 
-
     pub fn parse_func_init(&mut self) -> Option<Stmt> {
         self.consume(); //keyword
         let name = self.consume().value.unwrap();
@@ -30,7 +27,15 @@ impl Parser {
             let ty = self.parse_array(ty);
             ret_type = ty;
         }
-        let data = Box::new(self.parse_stmt().expect(&format!("the func: {} is empty",name)));
-        return Some(Stmt::InitFunc { name, args, ret_type, data, })
+        let data = Box::new(
+            self.parse_stmt()
+                .expect(&format!("the func: {} is empty", name)),
+        );
+        return Some(Stmt::InitFunc {
+            name,
+            args,
+            ret_type,
+            data,
+        });
     }
 }

@@ -1,13 +1,10 @@
-
-
 use super::*;
 
-use crate::Ir::stmt::*;
 use crate::Ir::expr::Expr;
+use crate::Ir::stmt::*;
 
 impl Parser {
-    
-    pub fn is_type(&self,token: &Token) -> bool {
+    pub fn is_type(&self, token: &Token) -> bool {
         match token.token {
             TokenType::IntType => true,
             TokenType::CharType => true,
@@ -27,28 +24,21 @@ impl Parser {
 
     pub fn check_ptr(&mut self) -> usize {
         let mut index = 0;
-        while self.m_index < self.m_tokens.len()
-        && self.peek(0).token == TokenType::Mul
-        {
+        while self.m_index < self.m_tokens.len() && self.peek(0).token == TokenType::Mul {
             index += 1;
         }
         index
     }
 
-    
     pub fn parse_ptr(&mut self, mut ty: Type) -> Type {
-        while self.m_index < self.m_tokens.len()
-        && self.peek(0).token == TokenType::Mul
-        {
+        while self.m_index < self.m_tokens.len() && self.peek(0).token == TokenType::Mul {
             self.consume();
             ty = Type::Pointer(Box::new(ty));
         }
         ty
     }
     pub fn parse_array(&mut self, mut ty: Type) -> Type {
-        while self.m_index < self.m_tokens.len()
-        && self.peek(0).token == TokenType::OpenBracket
-        {
+        while self.m_index < self.m_tokens.len() && self.peek(0).token == TokenType::OpenBracket {
             self.consume();
             let size = self.consume();
             self.consume();
@@ -79,25 +69,24 @@ impl Parser {
 
         ty
     }
-    
+
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
         let ty = self.get_type();
         let ty = self.parse_ptr(ty);
         let var_name = self.consume();
         let ty = self.parse_array(ty);
-        
+
         let mut expr: Option<Expr> = None;
         if self.peek(0).token == TokenType::Eq {
             self.consume();
             expr = Some(self.parse_expr());
         }
-        return Some(Stmt::Declaration(Declaration { 
+        return Some(Stmt::Declaration(Declaration {
             name: var_name.value.unwrap(),
             ty: ty,
             initializer: expr,
-        }))
+        }));
     }
-
 
     fn parse_struct_init(&mut self) -> Option<Stmt> {
         self.consume(); // 'struct'
@@ -251,16 +240,18 @@ impl Parser {
         let value = self.parse_expr();
         self.expect(TokenType::Semi);
 
-        Some(Stmt::Assignment { target: lvalue, value })
+        Some(Stmt::Assignment {
+            target: lvalue,
+            value,
+        })
     }
-
 
     pub fn parse_stmt(&mut self) -> Option<Stmt> {
         let token = self.peek(0);
         match token.token {
             TokenType::If => return self.parse_if(),
             TokenType::While => return self.parse_while(),
-            TokenType::For => return  self.parse_for(),
+            TokenType::For => return self.parse_for(),
             TokenType::OpenScope => return self.parse_scope(),
             TokenType::Return => return self.parse_ret(),
             TokenType::Asm => return self.parse_asm_stmt(),
@@ -270,19 +261,16 @@ impl Parser {
                 let stmt = self.parse_declaration();
                 self.expect(TokenType::Semi);
                 return stmt;
-            },
+            }
             _ => {
                 if self.check_assignment_start() {
                     return self.parse_assignment();
                 }
                 return self.parse_expr_stmt();
             }
-            
         };
     }
-    
 
-    
     fn parse_scope(&mut self) -> Option<Stmt> {
         self.consume();
         let mut stmts: Vec<Stmt> = Vec::new();
@@ -304,20 +292,23 @@ impl Parser {
             let else_data = Box::new(self.parse_stmt().unwrap());
             else_block = Some(else_data);
         }
-        return Some(Stmt::If { condition, if_block, else_block })
+        return Some(Stmt::If {
+            condition,
+            if_block,
+            else_block,
+        });
     }
 
     fn parse_while(&mut self) -> Option<Stmt> {
         self.consume();
         let condition = self.parse_expr();
         let body = Box::new(self.parse_stmt().unwrap());
-        return Some(Stmt::While { condition, body })
+        return Some(Stmt::While { condition, body });
     }
 
     fn parse_for(&mut self) -> Option<Stmt> {
         self.consume(); // the keyword itself
         self.consume(); // (
-
 
         let init = if self.is_type(&self.peek(0)) {
             Some(Box::new(self.parse_declaration().unwrap()))
@@ -335,7 +326,6 @@ impl Parser {
         };
         self.expect(TokenType::Semi);
 
-
         let update = if self.peek(0).token != TokenType::CloseParen {
             Some(Box::new(Stmt::ExprStmt(self.parse_expr())))
         } else {
@@ -344,12 +334,12 @@ impl Parser {
 
         self.consume(); // )
         let body = Box::new(self.parse_stmt().unwrap());
-        return Some(Stmt::For { 
-            init, 
-            condition,  
-            update, 
-            body 
-        })
+        return Some(Stmt::For {
+            init,
+            condition,
+            update,
+            body,
+        });
     }
 
     fn parse_asm_stmt(&mut self) -> Option<Stmt> {
@@ -380,30 +370,25 @@ impl Parser {
         self.expect(TokenType::Semi);
         Some(Stmt::ExprStmt(expr))
     }
-
-
 }
-
-
-
-
 
 #[test]
 fn test_single_pointer() {
-    let tokens = vec![
-        Token {token:TokenType::Mul, value: None },
-    ];
+    let tokens = vec![Token {
+        token: TokenType::Mul,
+        value: None,
+    }];
 
-    let mut parser = Parser { 
-            m_tokens: tokens,
-            m_index: 0,
-            struct_table: HashMap::new(),
-            expressions: Vec::new(),
-            types: HashSet::new(),
-            };
+    let mut parser = Parser {
+        m_tokens: tokens,
+        m_index: 0,
+        struct_table: HashMap::new(),
+        expressions: Vec::new(),
+        types: HashSet::new(),
+    };
 
     let result = parser.parse_ptr(Type::Primitive(TokenType::IntType));
-    println!("result: {:?}",result);
+    println!("result: {:?}", result);
     assert_eq!(
         result,
         Type::Pointer(Box::new(Type::Primitive(TokenType::IntType)))
@@ -413,34 +398,17 @@ fn test_single_pointer() {
 #[test]
 fn test_double_pointer() {
     let tokens = vec![
-        Token {token:TokenType::Mul, value: None },
-        Token {token:TokenType::Mul, value: None },
+        Token {
+            token: TokenType::Mul,
+            value: None,
+        },
+        Token {
+            token: TokenType::Mul,
+            value: None,
+        },
     ];
 
-    let mut parser = Parser { 
-            m_tokens: tokens,
-            m_index: 0,
-            struct_table: HashMap::new(),
-            expressions: Vec::new(),
-            types: HashSet::new(), };
-
-    let result = parser.parse_ptr(Type::Primitive(TokenType::IntType));
-    println!("result: {:?}",result);
-    assert_eq!(
-        result,
-        Type::Pointer(Box::new(Type::Pointer(Box::new(Type::Primitive(TokenType::IntType)))))
-    );
-}
-
-#[test]
-fn test_array_simple() {
-    let tokens = vec![
-        Token { token: TokenType::OpenBracket, value: None },
-        Token { token: TokenType::Num, value: Some("5".to_string()) },
-        Token { token: TokenType::CloseBracket, value: None },
-    ];
-
-    let mut parser = Parser { 
+    let mut parser = Parser {
         m_tokens: tokens,
         m_index: 0,
         struct_table: HashMap::new(),
@@ -448,16 +416,46 @@ fn test_array_simple() {
         types: HashSet::new(),
     };
 
-    let result = parser.parse_array(
-        Type::Primitive(TokenType::IntType)
+    let result = parser.parse_ptr(Type::Primitive(TokenType::IntType));
+    println!("result: {:?}", result);
+    assert_eq!(
+        result,
+        Type::Pointer(Box::new(Type::Pointer(Box::new(Type::Primitive(
+            TokenType::IntType
+        )))))
     );
+}
+
+#[test]
+fn test_array_simple() {
+    let tokens = vec![
+        Token {
+            token: TokenType::OpenBracket,
+            value: None,
+        },
+        Token {
+            token: TokenType::Num,
+            value: Some("5".to_string()),
+        },
+        Token {
+            token: TokenType::CloseBracket,
+            value: None,
+        },
+    ];
+
+    let mut parser = Parser {
+        m_tokens: tokens,
+        m_index: 0,
+        struct_table: HashMap::new(),
+        expressions: Vec::new(),
+        types: HashSet::new(),
+    };
+
+    let result = parser.parse_array(Type::Primitive(TokenType::IntType));
 
     assert_eq!(
         result,
-        Type::Array(
-            Box::new(Type::Primitive(TokenType::IntType)),
-            5
-        )
+        Type::Array(Box::new(Type::Primitive(TokenType::IntType)), 5)
     );
 }
 
@@ -465,15 +463,26 @@ fn test_array_simple() {
 fn test_pointer_array() {
     let tokens = vec![
         // for parse_ptr (pointer)
-        Token { token: TokenType::Mul, value: None },
-
+        Token {
+            token: TokenType::Mul,
+            value: None,
+        },
         // for parse_array
-        Token { token: TokenType::OpenBracket, value: None },
-        Token { token: TokenType::Num, value: Some("5".to_string()) },
-        Token { token: TokenType::CloseBracket, value: None },
+        Token {
+            token: TokenType::OpenBracket,
+            value: None,
+        },
+        Token {
+            token: TokenType::Num,
+            value: Some("5".to_string()),
+        },
+        Token {
+            token: TokenType::CloseBracket,
+            value: None,
+        },
     ];
 
-    let mut parser = Parser { 
+    let mut parser = Parser {
         m_tokens: tokens,
         struct_table: HashMap::new(),
         m_index: 0,
@@ -482,9 +491,7 @@ fn test_pointer_array() {
     };
 
     // First parse pointer
-    let ty = parser.parse_ptr(
-        Type::Primitive(TokenType::IntType)
-    );
+    let ty = parser.parse_ptr(Type::Primitive(TokenType::IntType));
 
     // Then parse array
     let result = parser.parse_array(ty);
@@ -492,11 +499,7 @@ fn test_pointer_array() {
     assert_eq!(
         result,
         Type::Array(
-            Box::new(
-                Type::Pointer(
-                    Box::new(Type::Primitive(TokenType::IntType))
-                )
-            ),
+            Box::new(Type::Pointer(Box::new(Type::Primitive(TokenType::IntType)))),
             5
         )
     );

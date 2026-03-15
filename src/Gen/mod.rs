@@ -4,10 +4,12 @@ use std::{collections::HashMap, fmt::Write};
 use crate::Ir::Stmt;
 use crate::Ir::expr::Expr;
 use crate::Ir::r#gen::*;
-use crate::Ir::stmt;
+use crate::Ir::sem_analysis::Analyzer;
 use crate::Ir::stmt::LValue;
 use crate::Ir::stmt::Type;
 use crate::Tokenizer::TokenType;
+
+use crate::Ir::sem_analysis::SemanticError;
 
 mod gen_expr;
 mod gen_stmt;
@@ -22,7 +24,6 @@ pub struct Gen {
     functions: HashMap<String, FuncData>,
     id: usize,
 }
-
 
 pub fn calc_stack_size(body: &Stmt) -> usize {
     let mut max_depth = 0usize;
@@ -46,13 +47,17 @@ fn calc_stack_recursive(stmt: &Stmt, current: usize, max_depth: &mut usize) {
         }
 
         Stmt::Declaration(decl) => {
-            let new_depth = current + type_size(&decl.ty,&HashMap::new());
+            let new_depth = current + type_size(&decl.ty, &HashMap::new());
             if new_depth > *max_depth {
                 *max_depth = new_depth;
             }
         }
 
-        Stmt::If { condition: _, if_block, else_block } => {
+        Stmt::If {
+            condition: _,
+            if_block,
+            else_block,
+        } => {
             calc_stack_recursive(if_block, current, max_depth);
             if let Some(else_b) = else_block {
                 calc_stack_recursive(else_b, current, max_depth);
@@ -63,7 +68,12 @@ fn calc_stack_recursive(stmt: &Stmt, current: usize, max_depth: &mut usize) {
             calc_stack_recursive(body, current, max_depth);
         }
 
-        Stmt::For { init, condition: _, update, body } => {
+        Stmt::For {
+            init,
+            condition: _,
+            update,
+            body,
+        } => {
             let mut for_current = current;
             if let Some(init_stmt) = init {
                 calc_stack_recursive(init_stmt, for_current, max_depth);
@@ -91,18 +101,17 @@ fn calc_stack_recursive(stmt: &Stmt, current: usize, max_depth: &mut usize) {
     }
 }
 
-
 fn stmt_local_size(stmt: &Stmt) -> usize {
     match stmt {
-        Stmt::Declaration(decl) => type_size(&decl.ty,&HashMap::new()),
-        Stmt::For { init: Some(init), .. } => stmt_local_size(init),
+        Stmt::Declaration(decl) => type_size(&decl.ty, &HashMap::new()),
+        Stmt::For {
+            init: Some(init), ..
+        } => stmt_local_size(init),
         _ => 0,
     }
 }
 
-
-
-fn type_size(ty: &Type, structs: &HashMap<String, StructData>) -> usize {
+pub fn type_size(ty: &Type, structs: &HashMap<String, StructData>) -> usize {
     match ty {
         Type::Primitive(token) => match token {
             TokenType::CharType => 1,
@@ -117,12 +126,12 @@ fn type_size(ty: &Type, structs: &HashMap<String, StructData>) -> usize {
             structs
                 .get(name)
                 .expect(&format!("Unknown struct: {}", name))
-                .element_size * structs.get(name).unwrap().elements.len()
+                .element_size
+                * structs.get(name).unwrap().elements.len()
         }
+        Type::Unknown => panic!("unkown type"),
     }
 }
-
-
 
 pub fn reg_for_size(base: &str, ty: &Type) -> String {
     let size = match ty {
@@ -133,6 +142,7 @@ pub fn reg_for_size(base: &str, ty: &Type) -> String {
             TokenType::LongType => 8,
             _ => panic!("Unsupported type"),
         },
+        Type::Unknown => panic!("unkown type"),
         Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) => 8,
     };
 
@@ -180,46 +190,78 @@ pub fn reg_for_size(base: &str, ty: &Type) -> String {
 pub fn arg_pos(pos: usize, ty: &Type) -> String {
     let size = match ty {
         Type::Primitive(token) => match token {
-            TokenType::CharType  => 1,
+            TokenType::CharType => 1,
             TokenType::ShortType => 2,
-            TokenType::IntType   => 4,
-            TokenType::LongType  => 8,
+            TokenType::IntType => 4,
+            TokenType::LongType => 8,
             _ => panic!("unsupported primitive type in arg_pos: {:?}", token),
         },
+        Type::Unknown => panic!("unkown type"),
         Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) => 8,
     };
 
     match (pos, size) {
-        (0, 8) => "rdi",  (0, 4) => "edi",  (0, 2) => "di",   (0, 1) => "dil",
-        (1, 8) => "rsi",  (1, 4) => "esi",  (1, 2) => "si",   (1, 1) => "sil",
-        (2, 8) => "rdx",  (2, 4) => "edx",  (2, 2) => "dx",   (2, 1) => "dl",
-        (3, 8) => "rcx",  (3, 4) => "ecx",  (3, 2) => "cx",   (3, 1) => "cl",
-        (4, 8) => "r8",   (4, 4) => "r8d",  (4, 2) => "r8w",  (4, 1) => "r8b",
-        (5, 8) => "r9",   (5, 4) => "r9d",  (5, 2) => "r9w",  (5, 1) => "r9b",
-        (6, 8) => "r10",  (6, 4) => "r10d", (6, 2) => "r10w", (6, 1) => "r10b",
-        (7, 8) => "r11",  (7, 4) => "r11d", (7, 2) => "r11w", (7, 1) => "r11b",
+        (0, 8) => "rdi",
+        (0, 4) => "edi",
+        (0, 2) => "di",
+        (0, 1) => "dil",
+        (1, 8) => "rsi",
+        (1, 4) => "esi",
+        (1, 2) => "si",
+        (1, 1) => "sil",
+        (2, 8) => "rdx",
+        (2, 4) => "edx",
+        (2, 2) => "dx",
+        (2, 1) => "dl",
+        (3, 8) => "rcx",
+        (3, 4) => "ecx",
+        (3, 2) => "cx",
+        (3, 1) => "cl",
+        (4, 8) => "r8",
+        (4, 4) => "r8d",
+        (4, 2) => "r8w",
+        (4, 1) => "r8b",
+        (5, 8) => "r9",
+        (5, 4) => "r9d",
+        (5, 2) => "r9w",
+        (5, 1) => "r9b",
+        (6, 8) => "r10",
+        (6, 4) => "r10d",
+        (6, 2) => "r10w",
+        (6, 1) => "r10b",
+        (7, 8) => "r11",
+        (7, 4) => "r11d",
+        (7, 2) => "r11w",
+        (7, 1) => "r11b",
         _ => panic!("arg_pos: unsupported pos={} size={}", pos, size),
-    }.to_string()
+    }
+    .to_string()
 }
 
 pub fn get_word(ty: &Type) -> String {
-        match ty {
-            Type::Primitive(token) => match token {
-                TokenType::CharType => "BYTE".to_string(),
-                TokenType::ShortType => "WORD".to_string(),
-                TokenType::IntType => "DWORD".to_string(),
-                TokenType::LongType => "QWORD".to_string(),
-                _ => panic!("Unsupported primitive type: {:?}", token),
-            },
-            Type::Pointer(_) => "QWORD".to_string(), // 64-bit pointer
-            Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
-            Type::Struct(struct_name) => {
-                "QWORD".to_string()
-            }
-        }
+    match ty {
+        Type::Primitive(token) => match token {
+            TokenType::CharType => "BYTE".to_string(),
+            TokenType::ShortType => "WORD".to_string(),
+            TokenType::IntType => "DWORD".to_string(),
+            TokenType::LongType => "QWORD".to_string(),
+            _ => panic!("Unsupported primitive type: {:?}", token),
+        },
+        Type::Pointer(_) => "QWORD".to_string(), // 64-bit pointer
+        Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
+        Type::Struct(struct_name) => "QWORD".to_string(),
+        Type::Unknown => panic!("unkown type"),
     }
+}
 
-
+pub fn lvalue_root(lvalue: &LValue) -> String {
+    match lvalue {
+        LValue::Variable(name) => name.clone(),
+        LValue::Field { base, .. } => lvalue_root(base),
+        LValue::Deref(inner) => lvalue_root(inner),
+        LValue::Index { base, .. } => lvalue_root(base),
+    }
+}
 
 impl Gen {
     pub fn new(stmts: Vec<Stmt>) -> Gen {
@@ -233,7 +275,6 @@ impl Gen {
             functions: HashMap::new(),
             id: 0,
         }
-        
     }
 
     fn emit(&mut self, s: String) {
@@ -275,16 +316,18 @@ impl Gen {
         match token {
             Type::Primitive(ty) => self.get_primitive_size(ty),
             Type::Pointer(_) => 8,
-            Type::Array(arr_type,size ) => {
+            Type::Array(arr_type, size) => {
                 let type_size = self.get_size(&*arr_type);
                 size * type_size
             }
             Type::Struct(struct_name) => {
-                let struct_data = self.structs.get(struct_name)
-                .expect(&format!("no struct with name {}",struct_name));
+                let struct_data = self
+                    .structs
+                    .get(struct_name)
+                    .expect(&format!("no struct with name {}", struct_name));
                 struct_data.elements.len() * struct_data.element_size
             }
-            
+            Type::Unknown => panic!("unkown type"),
         }
     }
 
@@ -298,7 +341,6 @@ impl Gen {
         self.stack_pos += size;
         self.stack_pos
     }
-
 
     pub fn gen_asm(&mut self) -> Result<String, Box<dyn std::error::Error>> {
         self.emit("section .text".to_string());
@@ -314,37 +356,41 @@ impl Gen {
         Ok(self.m_out.clone())
     }
 
-
     pub fn lookup_var(&self, name: &str) -> &VarData {
         for scope in self.scopes.iter().rev() {
             if let Some(ty) = scope.get(name) {
                 return ty;
             }
         }
-        self::panic!("couldnt find the var with name: {}",name);
+        self::panic!("couldnt find the var with name: {}", name);
     }
-
 
     pub fn add_var(&mut self, var_data: VarData, name: String) {
         let last_scope = self.scopes.last_mut().unwrap();
         last_scope.insert(name, var_data);
     }
 
-
     fn gen_stmts(&mut self) {
-
         let stmt = std::mem::take(&mut self.stmts);
 
         for i in stmt.iter() {
             match i {
-                Stmt::InitFunc { name, args, ret_type, data } => {
-                    let func_data = FuncData { args: args.clone(), return_type: ret_type.clone() };
+                Stmt::InitFunc {
+                    name,
+                    args,
+                    ret_type,
+                    data,
+                } => {
+                    let func_data = FuncData {
+                        args: args.clone(),
+                        return_type: ret_type.clone(),
+                    };
                     self.functions.insert(name.clone(), func_data);
                 }
                 Stmt::InitStruct(data) => {
                     self.gen_init_struct(data);
                 }
-                _ => {},
+                _ => {}
             }
         }
 
@@ -352,8 +398,27 @@ impl Gen {
             self.gen_stmt(i);
         }
     }
+}
 
-
-
-
+impl Stmt {
+    pub fn get_type(&self, helper: &mut Analyzer) -> Option<(Type)> {
+        match self {
+            Stmt::Declaration(data) => {
+                return Some(data.ty.clone());
+            }
+            Stmt::Assignment { target, value } => {
+                let var = lvalue_root(target);
+                if let Some(var) = helper.lookup(&var) {
+                    return Some(var);
+                } else {
+                    helper.errors.push(SemanticError::UndeclaredVariable(var));
+                    return None;
+                }
+            }
+            Stmt::ExprStmt(expr) => {
+                return Some(helper.check_expr(expr));
+            }
+            _ => None,
+        }
+    }
 }

@@ -4,10 +4,15 @@ use std::{
     io::{Read, Write},
 };
 
-mod Gen; 
+use std::fs;
+
+use crate::Ir::sem_analysis::Analyzer;
+
+mod Gen;
 mod Ir;
 mod Parser;
 mod Tokenizer;
+mod sem_analysis;
 
 #[derive(CliParser, Debug)]
 #[command(version, about, long_about = None)]
@@ -33,17 +38,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut parser = Parser::Parser::new(tokenizer.m_res);
     let res = parser.parse();
 
-    // to lazy to make normal debug print
-    let mut file = File::create("parser_result.txt")
-        .expect("Failed to create parser_result.txt");
+    let mut analyzer = Analyzer::new(&res);
+    analyzer.check_code();
+    let error_dump = format!("{:#?}", analyzer.errors);
+    fs::write("errors.txt", error_dump).expect("Failed to write errors.txt");
 
-    write!(file, "parse result\n{:#?}", res)
-        .expect("Failed to write to file");
+    // to lazy to make normal debug print
+    let mut file = File::create("parser_result.txt").expect("Failed to create parser_result.txt");
+
+    write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
 
     let mut generator = Gen::Gen::new(res);
     let asm = generator.gen_asm()?;
     let mut file = File::create("main.asm")?;
-    let _res  = file.write(asm.as_bytes())?;
+    let _res = file.write(asm.as_bytes())?;
 
     Ok(())
 }

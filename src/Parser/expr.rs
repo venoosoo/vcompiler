@@ -1,13 +1,12 @@
 use super::*;
 
-
 use crate::Ir::expr::*;
 
 impl Parser {
-
-
     fn parse_struct_expr(&mut self) -> Expr {
         let mut fields = Vec::new();
+
+        let name = self.consume();
 
         while self.peek(0).token != TokenType::CloseScope {
             let name_token = self.consume();
@@ -25,7 +24,10 @@ impl Parser {
             }
         }
         self.expect(TokenType::CloseScope);
-        Expr::StructInit { fields, struct_name: None }
+        Expr::StructInit {
+            fields,
+            struct_name: name.value.unwrap(),
+        }
     }
 
     fn parse_primary(&mut self) -> Expr {
@@ -36,11 +38,11 @@ impl Parser {
             TokenType::Mul => {
                 let rhs = self.parse_primary();
                 Expr::Deref(Box::new(rhs))
-            },
+            }
             TokenType::Address => {
                 let rhs = self.parse_primary();
                 Expr::AddressOf(Box::new(rhs))
-            },
+            }
             TokenType::OpenParen => {
                 let expr = self.parse_expr();
                 self.expect(TokenType::CloseParen);
@@ -48,33 +50,37 @@ impl Parser {
             }
             TokenType::Not => {
                 let rhs = self.parse_primary();
-                Expr::Unary { op: UnaryOp::Not, expr: Box::new(rhs) }
+                Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(rhs),
+                }
             }
             TokenType::Sub => {
                 let rhs = self.parse_primary();
-                Expr::Unary { op: UnaryOp::Neg, expr: Box::new(rhs) }
+                Expr::Unary {
+                    op: UnaryOp::Neg,
+                    expr: Box::new(rhs),
+                }
             }
 
-            TokenType::OpenScope => {
-                self.parse_struct_expr()
-            }
+            TokenType::OpenScope => self.parse_struct_expr(),
 
             TokenType::CharValue => {
                 let s: i64 = token.value.unwrap().parse().unwrap();
                 Expr::Number(s as i64)
             }
-            
 
-            _ => panic!("Unexpected token in primary expression: {:?}\n{:?}", token.token,self.m_tokens),
+            _ => panic!(
+                "Unexpected token in primary expression: {:?}\n{:?}",
+                token.token, self.m_tokens
+            ),
         }
     }
 
     fn expr_to_ident(&self, expr: Expr) -> String {
         match expr {
-            Expr::Variable(var) => {
-                var
-            }
-            _ => panic!("in expr_to_ident go wrong type of expr: {:?}",expr)
+            Expr::Variable(var) => var,
+            _ => panic!("in expr_to_ident go wrong type of expr: {:?}", expr),
         }
     }
 
@@ -104,12 +110,18 @@ impl Parser {
             TokenType::Sub => {
                 self.consume();
                 let rhs = self.parse_unary();
-                Expr::Unary { op: UnaryOp::Neg, expr: Box::new(rhs) }
+                Expr::Unary {
+                    op: UnaryOp::Neg,
+                    expr: Box::new(rhs),
+                }
             }
             TokenType::Not => {
                 self.consume();
                 let rhs = self.parse_unary();
-                Expr::Unary { op: UnaryOp::Not, expr: Box::new(rhs) }
+                Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(rhs),
+                }
             }
             _ => self.parse_postfix_chain(),
         }
@@ -177,7 +189,7 @@ impl Parser {
             TokenType::And => Some(BinOp::And),
             TokenType::Or => Some(BinOp::Or),
             TokenType::Remainder => Some(BinOp::Mod),
-            _ => None
+            _ => None,
         }
     }
 
@@ -213,5 +225,4 @@ impl Parser {
 
         left
     }
-
 }

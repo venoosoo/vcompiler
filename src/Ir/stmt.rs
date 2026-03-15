@@ -1,7 +1,5 @@
-
-use crate::Tokenizer::TokenType;
 use crate::Ir::expr::Expr;
-
+use crate::Tokenizer::TokenType;
 
 #[derive(Debug, Clone)]
 pub enum LValue {
@@ -11,15 +9,14 @@ pub enum LValue {
     Index { base: Box<LValue>, index: Box<Expr> },
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Primitive(TokenType),
     Pointer(Box<Type>),
     Array(Box<Type>, usize),
     Struct(String),
+    Unknown,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct Declaration {
@@ -31,10 +28,13 @@ pub struct Declaration {
 /// Statements
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Block(Vec<Stmt>),             // scopes
+    Block(Vec<Stmt>), // scopes
     Declaration(Declaration),
-    Assignment { target: LValue, value: Expr },
-    ExprStmt(Expr),               // function calls or standalone expressions
+    Assignment {
+        target: LValue,
+        value: Expr,
+    },
+    ExprStmt(Expr), // function calls or standalone expressions
 
     If {
         condition: Expr,
@@ -56,7 +56,12 @@ pub enum Stmt {
 
     Return(Option<Expr>),
     AsmCode(Vec<String>),
-    InitFunc{name: String, args: Vec<Stmt>, ret_type: Type, data: Box<Stmt>},
+    InitFunc {
+        name: String,
+        args: Vec<Stmt>,
+        ret_type: Type,
+        data: Box<Stmt>,
+    },
     InitStruct(StructDef),
 }
 
@@ -75,7 +80,6 @@ pub struct Function {
     pub return_type: Type,
     pub body: Stmt, // usually a Block
 }
-
 
 #[derive(Debug, Clone)]
 pub struct StructField {

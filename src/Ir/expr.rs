@@ -1,5 +1,4 @@
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Number(i64),
     Float(f64),
@@ -22,8 +21,8 @@ pub enum Expr {
     },
 
     StructInit {
-        struct_name: Option<String>,
-        fields: Vec<(String, Expr)>
+        struct_name: String,
+        fields: Vec<(String, Expr)>,
     },
 
     StructMember {
@@ -40,8 +39,7 @@ pub enum Expr {
     },
 }
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BinOp {
     Add,
     Sub,
@@ -58,8 +56,7 @@ pub enum BinOp {
     Or,
 }
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOp {
     Neg,
     Not,
