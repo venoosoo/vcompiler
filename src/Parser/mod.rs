@@ -65,6 +65,13 @@ impl Parser {
         self.m_tokens.remove(0)
     }
 
+    fn is_struct(&self, var_name: &String) -> bool {
+        if self.types.get(var_name).is_some() {
+            return true;
+        }
+        return false;
+    }
+
     pub fn parse(&mut self) -> Vec<Stmt> {
         while !self.m_tokens.is_empty() {
             if let Some(stmt) = self.parse_stmt() {

@@ -33,11 +33,17 @@ pub struct Analyzer<'a> {
 
 #[derive(Debug, Clone)]
 pub enum SemanticError {
+    EmptyArray,
     UndeclaredVariable(String),
     UndeclaredFunction(String),
     UndeclaredStruct(String),
     UndeclaredField(String, String), // (struct_name, field_name)
     AlreadyDeclared(String),
+    ArrayTooLarge {
+        arr_name: String,
+        expected: usize,
+        got: usize,
+    },
     TypeMismatch {
         expected: Type,
         got: Type,

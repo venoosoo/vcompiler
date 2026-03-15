@@ -38,13 +38,13 @@ impl Expr {
                 lty
             }
             Expr::StructInit {
-                struct_name,
+                struct_name_ty,
                 fields: _,
             } => {
-                if let Some(_struct_data) = gen_helper.structs.get(struct_name) {
-                    Type::Struct(struct_name.clone())
+                if let Some(_struct_data) = gen_helper.structs.get(struct_name_ty) {
+                    Type::Struct(struct_name_ty.clone())
                 } else {
-                    self::panic!("Struct {} not found in get_type_of_expr", struct_name);
+                    self::panic!("Struct {} not found in get_type_of_expr", struct_name_ty);
                 }
             }
 
@@ -91,6 +91,13 @@ impl Expr {
                     .get(name)
                     .expect(&format!("Function {} not found", name));
                 func_data.return_type.clone()
+            }
+            Expr::ArrayInit { elements } => {
+                if elements.len() > 0 {
+                    return elements[0].get_type_of_expr(gen_helper);
+                } else {
+                    Type::Unknown
+                }
             }
         }
     }
@@ -225,12 +232,11 @@ impl Gen {
         let (op, left, right) = data;
         let left_reg = self.eval_expr(left, Some(reg_helper), expected_type);
         let right_reg = self.eval_expr(right, Some(reg_helper), expected_type);
-        println!("reg_helper: {:?}", reg_helper.reg_stack);
         self.gen_expr_binop(op, &left_reg, &right_reg, expected_type);
 
         // we need to pop last reg because we evaluted expr
         // and results in rax but reg_stack still has both
-        reg_helper.reg_stack.pop();
+        reg_helper.get_reg();
 
         left_reg
     }
@@ -271,7 +277,7 @@ impl Gen {
             let reg = self.eval_expr(arg, Some(reg_helper), &arg_type);
             let arg_reg = arg_pos(index, &arg_type);
             self.emit(format!("    mov {}, {}", arg_reg, reg));
-            reg_helper.reg_stack.pop();
+            reg_helper.get_reg();
         }
 
         self.emit(format!("    call {}", name));
@@ -297,16 +303,14 @@ impl Gen {
             .expect("Unknown struct")
             .clone();
         let total_size = struct_data.elements.len() * struct_data.element_size;
-        let base_pos = self.alloc(total_size);
+        let base_pos = self.stack_pos;
 
         for (field_name, field_expr) in fields {
             let field = struct_data.elements.get(field_name).expect("Unknown field");
 
             let field_type = &field.ty;
 
-            let value_reg = self.eval_expr(field_expr, Some(reg_helper), field_type);
-
-            let sized_reg = reg_for_size(&value_reg, field_type);
+            let sized_reg = reg_for_size("rax", field_type);
             let size_word = get_word(field_type);
 
             let field_pos = base_pos - field.offset;
@@ -319,9 +323,7 @@ impl Gen {
 
         let result_reg =
             reg_helper.insert_reg(&Type::Pointer(Box::new(Type::Struct(struct_name.clone()))));
-
         self.emit(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
-
         result_reg
     }
 
@@ -406,8 +408,7 @@ impl Gen {
                     Some(reg_helper),
                     &Type::Primitive(TokenType::IntType),
                 );
-
-                let elem_size = type_size(&elem_type, &self.structs);
+                let elem_size = self.type_size(&elem_type);
 
                 self.emit(format!(
                     "    imul {}, {}, {}",
@@ -440,7 +441,7 @@ impl Gen {
             Some(reg_helper),
             &Type::Primitive(TokenType::IntType),
         );
-        let elem_size = type_size(expected_type, &self.structs);
+        let elem_size = self.type_size(expected_type);
 
         self.emit(format!(
             "    imul {}, {}, {}",
@@ -455,6 +456,39 @@ impl Gen {
             "    mov {}, {} [{}]",
             result_reg, size_word, base_reg
         ));
+
+        result_reg
+    }
+
+    fn gen_array_init(
+        &mut self,
+        reg_helper: &mut RegisterHelper,
+        elements: &Vec<Expr>,
+        expected_type: &Type,
+    ) -> String {
+        let elem_type = match expected_type {
+            Type::Array(elem_ty, _) => *elem_ty.clone(),
+            _ => self::panic!("gen_array_init called with non-array type"),
+        };
+        let elem_size = self.type_size(&elem_type);
+        let total_size = elem_size * elements.len();
+        let base_pos = self.stack_pos;
+
+        for (i, elem) in elements.iter().enumerate() {
+            let value_reg = self.eval_expr(elem, Some(reg_helper), &elem_type);
+            let sized_reg = reg_for_size("rax", &elem_type);
+            let size_word = get_word(&elem_type);
+            let offset = base_pos - (i * elem_size);
+
+            self.emit(format!(
+                "    mov {} [rbp - {}], {}",
+                size_word, offset, sized_reg
+            ));
+            reg_helper.reg_stack.pop();
+        }
+
+        let result_reg = reg_helper.insert_reg(&Type::Pointer(Box::new(elem_type.clone())));
+        self.emit(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
 
         result_reg
     }
@@ -476,6 +510,9 @@ impl Gen {
         };
 
         match expr {
+            Expr::ArrayInit { elements } => {
+                self.gen_array_init(reg_helper, elements, expected_type)
+            }
             Expr::Number(num) => self.gen_expr_num(reg_helper, num, expected_type),
 
             Expr::Variable(var) => self.gen_expr_var(reg_helper, var, expected_type),
@@ -513,8 +550,8 @@ impl Gen {
 
             Expr::StructInit {
                 fields,
-                struct_name,
-            } => self.gen_expr_struct_init(reg_helper, fields, struct_name, expected_type),
+                struct_name_ty,
+            } => self.gen_expr_struct_init(reg_helper, fields, struct_name_ty, expected_type),
 
             Expr::Float(_) => self::panic!("floats not implemented"),
         }

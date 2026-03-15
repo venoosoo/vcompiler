@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use super::*;
+
 use crate::{
     Gen::lvalue_root,
     Ir::{
@@ -10,21 +12,29 @@ use crate::{
         stmt::{Declaration, LValue, StructDef, Type},
     },
     Tokenizer::TokenType,
+    sem_analysis::numeric_rank,
 };
 
 impl<'a> Analyzer<'a> {
     pub fn check_block(&mut self, data: &Vec<Stmt>) {
+        self.scopes.push(HashMap::new());
         for i in data.iter() {
             self.check_stmt(i);
         }
+        self.scopes.pop();
     }
 
-    pub fn check_types(&mut self, left: &Type, right: &Type) -> bool {
-        // redo
-        // add compatible_types so when we have
-        // short and int
-        // it wouldnt throw an error
+    pub fn check_types(&self, left: &Type, right: &Type) -> bool {
         if left == right {
+            return true;
+        }
+        if numeric_rank(left).is_some() && numeric_rank(right).is_some() {
+            return true;
+        }
+        if let (Type::Array(l_elem, _), Type::Array(r_elem, _)) = (left, right) {
+            return self.check_types(l_elem, r_elem);
+        }
+        if is_ptr_long_pair(left, right) || is_ptr_long_pair(right, left) {
             return true;
         }
         false
@@ -38,11 +48,20 @@ impl<'a> Analyzer<'a> {
 
         if let Some(expr) = &data.initializer {
             let expr_ty = self.check_expr(expr);
-            if data.ty != expr_ty {
+            if !self.check_types(&data.ty, &expr_ty) {
                 self.errors.push(SemanticError::TypeMismatch {
                     expected: data.ty.clone(),
-                    got: expr_ty,
+                    got: expr_ty.clone(),
                 });
+            }
+            if let (Type::Array(_, decl_size), Type::Array(_, init_size)) = (&data.ty, &expr_ty) {
+                if init_size > decl_size {
+                    self.errors.push(SemanticError::ArrayTooLarge {
+                        arr_name: data.name.clone(),
+                        expected: *decl_size,
+                        got: *init_size,
+                    });
+                }
             }
         }
 
@@ -111,7 +130,7 @@ impl<'a> Analyzer<'a> {
         if let Some(expr) = expr {
             expr_ty = self.check_expr(expr);
         }
-        if self.current_ret_type != expr_ty {
+        if !self.check_types(&self.current_ret_type, &expr_ty) {
             self.errors.push(SemanticError::ReturnTypeMismatch {
                 expected: self.current_ret_type.clone(),
                 got: expr_ty.clone(),

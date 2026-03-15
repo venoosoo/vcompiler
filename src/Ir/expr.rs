@@ -21,7 +21,7 @@ pub enum Expr {
     },
 
     StructInit {
-        struct_name: String,
+        struct_name_ty: String,
         fields: Vec<(String, Expr)>,
     },
 
@@ -36,6 +36,9 @@ pub enum Expr {
     Index {
         base: Box<Expr>,
         index: Box<Expr>,
+    },
+    ArrayInit {
+        elements: Vec<Expr>,
     },
 }
 

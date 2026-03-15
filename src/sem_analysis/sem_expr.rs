@@ -14,7 +14,7 @@ use super::*;
 
 impl<'a> Analyzer<'a> {
     fn check_num(&mut self, num: &i64) -> Type {
-        return Type::Primitive(TokenType::LongType);
+        return Type::Primitive(TokenType::IntType);
     }
 
     fn check_var(&mut self, var: &String) -> Type {
@@ -142,8 +142,7 @@ impl<'a> Analyzer<'a> {
 
             for (arg, expr) in args.iter().enumerate() {
                 let expr_ty = self.check_expr(expr);
-                if func_data.args[arg].arg_type == expr_ty {
-                } else {
+                if !self.check_types(&func_data.args[arg].arg_type, &expr_ty) {
                     self.errors.push(SemanticError::ArgTypeMismatch {
                         func: name.clone(),
                         pos: arg,
@@ -262,6 +261,27 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn check_array_init(&mut self, elements: &Vec<Expr>) -> Type {
+        if elements.is_empty() {
+            self.errors.push(SemanticError::EmptyArray);
+            return Type::Unknown;
+        }
+
+        let first_ty = self.check_expr(&elements[0]);
+
+        for elem in elements.iter().skip(1) {
+            let elem_ty = self.check_expr(elem);
+            if !self.check_types(&first_ty, &elem_ty) {
+                self.errors.push(SemanticError::TypeMismatch {
+                    expected: first_ty.clone(),
+                    got: elem_ty,
+                });
+            }
+        }
+
+        Type::Array(Box::new(first_ty), elements.len())
+    }
+
     pub fn check_expr(&mut self, expr: &Expr) -> Type {
         match expr {
             Expr::Number(num) => self.check_num(num),
@@ -271,13 +291,14 @@ impl<'a> Analyzer<'a> {
             Expr::Unary { op, expr } => self.check_unary(op, expr),
             Expr::Call { name, args } => self.check_call(name, args),
             Expr::StructInit {
-                struct_name,
+                struct_name_ty,
                 fields,
-            } => self.check_struct_expr(struct_name, fields),
+            } => self.check_struct_expr(struct_name_ty, fields),
             Expr::StructMember { base, name } => self.check_struct_member(base, name),
             Expr::Deref(expr) => self.check_deref(expr),
             Expr::AddressOf(expr) => self.check_addres_of(expr),
             Expr::Index { base, index } => self.check_index(base, index),
+            Expr::ArrayInit { elements } => self.check_array_init(elements),
         }
     }
 }

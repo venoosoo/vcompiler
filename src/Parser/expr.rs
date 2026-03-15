@@ -3,10 +3,10 @@ use super::*;
 use crate::Ir::expr::*;
 
 impl Parser {
-    fn parse_struct_expr(&mut self) -> Expr {
+    fn parse_struct_expr(&mut self, struct_name: &String) -> Expr {
         let mut fields = Vec::new();
 
-        let name = self.consume();
+        self.expect(TokenType::OpenScope);
 
         while self.peek(0).token != TokenType::CloseScope {
             let name_token = self.consume();
@@ -26,14 +26,35 @@ impl Parser {
         self.expect(TokenType::CloseScope);
         Expr::StructInit {
             fields,
-            struct_name: name.value.unwrap(),
+            struct_name_ty: struct_name.clone(),
         }
+    }
+
+    fn parse_init_array(&mut self) -> Expr {
+        let mut elements = Vec::new();
+
+        while self.peek(0).token != TokenType::CloseScope {
+            elements.push(self.parse_expr());
+            if self.peek(0).token == TokenType::Coma {
+                self.consume();
+            }
+        }
+
+        self.expect(TokenType::CloseScope);
+        Expr::ArrayInit { elements }
     }
 
     fn parse_primary(&mut self) -> Expr {
         let token = self.consume();
         match token.token {
-            TokenType::Var => Expr::Variable(token.value.unwrap()),
+            TokenType::Var => {
+                let token_value = token.value.unwrap();
+                if self.is_struct(&token_value) {
+                    self.parse_struct_expr(&token_value)
+                } else {
+                    Expr::Variable(token_value)
+                }
+            }
             TokenType::Num => Expr::Number(token.value.unwrap().parse().unwrap()),
             TokenType::Mul => {
                 let rhs = self.parse_primary();
@@ -63,7 +84,7 @@ impl Parser {
                 }
             }
 
-            TokenType::OpenScope => self.parse_struct_expr(),
+            TokenType::OpenScope => self.parse_init_array(),
 
             TokenType::CharValue => {
                 let s: i64 = token.value.unwrap().parse().unwrap();

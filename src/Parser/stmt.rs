@@ -4,6 +4,30 @@ use crate::Ir::expr::Expr;
 use crate::Ir::stmt::*;
 
 impl Parser {
+    pub fn parse_stmt(&mut self) -> Option<Stmt> {
+        let token = self.peek(0);
+        match token.token {
+            TokenType::If => return self.parse_if(),
+            TokenType::While => return self.parse_while(),
+            TokenType::For => return self.parse_for(),
+            TokenType::OpenScope => return self.parse_scope(),
+            TokenType::Return => return self.parse_ret(),
+            TokenType::Asm => return self.parse_asm_stmt(),
+            TokenType::Func => return self.parse_func_init(),
+            TokenType::Struct => return self.parse_struct_init(),
+            ty if self.is_type(&token) => {
+                let stmt = self.parse_declaration();
+                self.expect(TokenType::Semi);
+                return stmt;
+            }
+            _ => {
+                if self.check_assignment_start() {
+                    return self.parse_assignment();
+                }
+                return self.parse_expr_stmt();
+            }
+        };
+    }
     pub fn is_type(&self, token: &Token) -> bool {
         match token.token {
             TokenType::IntType => true,
@@ -58,6 +82,7 @@ impl Parser {
         let token = self.consume();
 
         let mut ty = if token.token == TokenType::Var {
+            println!("value: {:?}", token);
             let name = self.types.get(&token.value.unwrap()).unwrap();
             Type::Struct(name.to_string())
         } else {
@@ -140,6 +165,7 @@ impl Parser {
 
         // register struct in type table
         self.types.insert(struct_name.clone());
+        self.struct_table.insert(struct_name.clone(), def.clone());
 
         Some(Stmt::InitStruct(def))
     }
@@ -195,7 +221,7 @@ impl Parser {
         }
     }
 
-    fn parse_assignment(&mut self) -> Option<Stmt> {
+    fn parse_assignment_no_semi(&mut self) -> Option<Stmt> {
         let mut pointer_depth = 0;
         while self.peek(0).token == TokenType::Mul {
             self.consume();
@@ -238,7 +264,6 @@ impl Parser {
         self.expect(TokenType::Eq);
 
         let value = self.parse_expr();
-        self.expect(TokenType::Semi);
 
         Some(Stmt::Assignment {
             target: lvalue,
@@ -246,29 +271,10 @@ impl Parser {
         })
     }
 
-    pub fn parse_stmt(&mut self) -> Option<Stmt> {
-        let token = self.peek(0);
-        match token.token {
-            TokenType::If => return self.parse_if(),
-            TokenType::While => return self.parse_while(),
-            TokenType::For => return self.parse_for(),
-            TokenType::OpenScope => return self.parse_scope(),
-            TokenType::Return => return self.parse_ret(),
-            TokenType::Asm => return self.parse_asm_stmt(),
-            TokenType::Func => return self.parse_func_init(),
-            TokenType::Struct => return self.parse_struct_init(),
-            ty if self.is_type(&token) => {
-                let stmt = self.parse_declaration();
-                self.expect(TokenType::Semi);
-                return stmt;
-            }
-            _ => {
-                if self.check_assignment_start() {
-                    return self.parse_assignment();
-                }
-                return self.parse_expr_stmt();
-            }
-        };
+    fn parse_assignment(&mut self) -> Option<Stmt> {
+        let res = self.parse_assignment_no_semi();
+        self.expect(TokenType::Semi);
+        return res;
     }
 
     fn parse_scope(&mut self) -> Option<Stmt> {
@@ -312,9 +318,6 @@ impl Parser {
 
         let init = if self.is_type(&self.peek(0)) {
             Some(Box::new(self.parse_declaration().unwrap()))
-        } else if self.peek(0).token != TokenType::Semi {
-            let expr = self.parse_expr();
-            Some(Box::new(Stmt::ExprStmt(expr)))
         } else {
             None
         };
@@ -327,7 +330,7 @@ impl Parser {
         self.expect(TokenType::Semi);
 
         let update = if self.peek(0).token != TokenType::CloseParen {
-            Some(Box::new(Stmt::ExprStmt(self.parse_expr())))
+            Some(Box::new(self.parse_assignment_no_semi().unwrap()))
         } else {
             None
         };

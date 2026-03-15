@@ -19,6 +19,7 @@ impl Gen {
 
     fn gen_declaration(&mut self, data: &Declaration) {
         let stack_pos = self.alloc_type(&data.ty);
+
         if let Some(expr_data) = &data.initializer {
             let reg = self.eval_expr(expr_data, None, &data.ty);
             self.emit(format!("    mov [rbp - {}], {}", stack_pos, reg));
@@ -181,7 +182,6 @@ impl Gen {
         if let Some(init_stmt) = init {
             self.gen_stmt(init_stmt);
         }
-
         self.emit(format!("for_start_{}:", id));
 
         if let Some(cond_expr) = condition {
@@ -192,6 +192,7 @@ impl Gen {
 
         self.gen_stmt(&body);
         if let Some(update_stmt) = update {
+            println!("upd_stmt: {:?}", update_stmt);
             self.gen_stmt(update_stmt);
         }
         self.emit(format!("    jmp for_start_{}", id));
@@ -256,18 +257,27 @@ impl Gen {
             if i >= arg_regs.len() {
                 self::panic!("too many args, stack args not supported yet");
             }
-
-            pos += type_size(&decl.ty, &self.structs);
+            pos += self.type_size(&decl.ty);
             let reg = reg_for_size(arg_regs[i], &decl.ty);
 
             self.emit(format!("    mov [rbp - {}], {}", pos, reg));
         }
     }
 
+    fn stmt_local_size(&self, stmt: &Stmt) -> usize {
+        match stmt {
+            Stmt::Declaration(decl) => self.type_size(&decl.ty),
+            Stmt::For {
+                init: Some(init), ..
+            } => self.stmt_local_size(init),
+            _ => 0,
+        }
+    }
+
     pub fn gen_func(&mut self, data: (&String, &Vec<Stmt>, &Type, &Box<Stmt>)) {
         let (name, args, ret_type, data) = data;
         self.current_return_type = ret_type.clone();
-        let func_stack_frame = calc_stack_size(&data);
+        let func_stack_frame = self.calc_stack_size(&data);
         self.emit(format!("{}:", name));
         self.emit(format!("    push rbp"));
         self.emit(format!("    mov rbp, rsp"));
@@ -318,6 +328,101 @@ impl Gen {
         }
 
         self.emit(format!("; ======================"));
+    }
+
+    pub fn calc_stack_size(&self, body: &Stmt) -> usize {
+        let mut max_depth = 0usize;
+        self.calc_stack_recursive(body, 0, &mut max_depth);
+        // Align to 16 bytes (System V ABI requirement)
+        align16(max_depth)
+    }
+
+    pub fn type_size(&self, ty: &Type) -> usize {
+        match ty {
+            Type::Primitive(token) => match token {
+                TokenType::CharType => 1,
+                TokenType::ShortType => 2,
+                TokenType::IntType => 4,
+                TokenType::LongType => 8,
+                _ => self::panic!("Unsupported primitive type: {:?}", token),
+            },
+            Type::Pointer(_) => 8,
+            Type::Array(elem_type, count) => self.type_size(elem_type) * *count,
+            Type::Struct(name) => {
+                self.structs
+                    .get(name)
+                    .expect(&format!("Unknown struct: {}", name))
+                    .element_size
+                    * self.structs.get(name).unwrap().elements.len()
+            }
+            Type::Unknown => self::panic!("unkown type"),
+        }
+    }
+
+    fn calc_stack_recursive(&self, stmt: &Stmt, current: usize, max_depth: &mut usize) {
+        match stmt {
+            Stmt::Block(stmts) => {
+                let mut block_current = current;
+                for s in stmts {
+                    self.calc_stack_recursive(s, block_current, max_depth);
+                    block_current += self.stmt_local_size(s);
+                }
+            }
+
+            Stmt::Declaration(decl) => {
+                println!("wtf");
+                let new_depth = current + self.type_size(&decl.ty);
+                if new_depth > *max_depth {
+                    *max_depth = new_depth;
+                }
+            }
+
+            Stmt::If {
+                condition: _,
+                if_block,
+                else_block,
+            } => {
+                self.calc_stack_recursive(if_block, current, max_depth);
+                if let Some(else_b) = else_block {
+                    self.calc_stack_recursive(else_b, current, max_depth);
+                }
+            }
+
+            Stmt::While { condition: _, body } => {
+                self.calc_stack_recursive(body, current, max_depth);
+            }
+
+            Stmt::For {
+                init,
+                condition: _,
+                update,
+                body,
+            } => {
+                let mut for_current = current;
+                if let Some(init_stmt) = init {
+                    self.calc_stack_recursive(init_stmt, for_current, max_depth);
+                    for_current += self.stmt_local_size(init_stmt);
+                }
+                if let Some(update_stmt) = update {
+                    self.calc_stack_recursive(update_stmt, for_current, max_depth);
+                }
+                self.calc_stack_recursive(body, for_current, max_depth);
+            }
+
+            // InitFunc: nested function definition — don't count its stack in ours
+            Stmt::InitFunc { .. } => {}
+
+            // These don't allocate stack space themselves
+            Stmt::Assignment { .. }
+            | Stmt::ExprStmt(_)
+            | Stmt::Return(_)
+            | Stmt::AsmCode(_)
+            | Stmt::InitStruct(_) => {
+                if current > *max_depth {
+                    *max_depth = current;
+                }
+            }
+        }
     }
 
     pub fn gen_stmt(&mut self, stmt: &Stmt) {

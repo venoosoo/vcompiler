@@ -25,112 +25,8 @@ pub struct Gen {
     id: usize,
 }
 
-pub fn calc_stack_size(body: &Stmt) -> usize {
-    let mut max_depth = 0usize;
-    calc_stack_recursive(body, 0, &mut max_depth);
-    // Align to 16 bytes (System V ABI requirement)
-    align16(max_depth)
-}
-
 fn align16(n: usize) -> usize {
     (n + 15) & !15
-}
-
-fn calc_stack_recursive(stmt: &Stmt, current: usize, max_depth: &mut usize) {
-    match stmt {
-        Stmt::Block(stmts) => {
-            let mut block_current = current;
-            for s in stmts {
-                calc_stack_recursive(s, block_current, max_depth);
-                block_current += stmt_local_size(s);
-            }
-        }
-
-        Stmt::Declaration(decl) => {
-            let new_depth = current + type_size(&decl.ty, &HashMap::new());
-            if new_depth > *max_depth {
-                *max_depth = new_depth;
-            }
-        }
-
-        Stmt::If {
-            condition: _,
-            if_block,
-            else_block,
-        } => {
-            calc_stack_recursive(if_block, current, max_depth);
-            if let Some(else_b) = else_block {
-                calc_stack_recursive(else_b, current, max_depth);
-            }
-        }
-
-        Stmt::While { condition: _, body } => {
-            calc_stack_recursive(body, current, max_depth);
-        }
-
-        Stmt::For {
-            init,
-            condition: _,
-            update,
-            body,
-        } => {
-            let mut for_current = current;
-            if let Some(init_stmt) = init {
-                calc_stack_recursive(init_stmt, for_current, max_depth);
-                for_current += stmt_local_size(init_stmt);
-            }
-            if let Some(update_stmt) = update {
-                calc_stack_recursive(update_stmt, for_current, max_depth);
-            }
-            calc_stack_recursive(body, for_current, max_depth);
-        }
-
-        // InitFunc: nested function definition — don't count its stack in ours
-        Stmt::InitFunc { .. } => {}
-
-        // These don't allocate stack space themselves
-        Stmt::Assignment { .. }
-        | Stmt::ExprStmt(_)
-        | Stmt::Return(_)
-        | Stmt::AsmCode(_)
-        | Stmt::InitStruct(_) => {
-            if current > *max_depth {
-                *max_depth = current;
-            }
-        }
-    }
-}
-
-fn stmt_local_size(stmt: &Stmt) -> usize {
-    match stmt {
-        Stmt::Declaration(decl) => type_size(&decl.ty, &HashMap::new()),
-        Stmt::For {
-            init: Some(init), ..
-        } => stmt_local_size(init),
-        _ => 0,
-    }
-}
-
-pub fn type_size(ty: &Type, structs: &HashMap<String, StructData>) -> usize {
-    match ty {
-        Type::Primitive(token) => match token {
-            TokenType::CharType => 1,
-            TokenType::ShortType => 2,
-            TokenType::IntType => 4,
-            TokenType::LongType => 8,
-            _ => panic!("Unsupported primitive type: {:?}", token),
-        },
-        Type::Pointer(_) => 8,
-        Type::Array(elem_type, count) => type_size(elem_type, structs) * *count,
-        Type::Struct(name) => {
-            structs
-                .get(name)
-                .expect(&format!("Unknown struct: {}", name))
-                .element_size
-                * structs.get(name).unwrap().elements.len()
-        }
-        Type::Unknown => panic!("unkown type"),
-    }
 }
 
 pub fn reg_for_size(base: &str, ty: &Type) -> String {
@@ -317,6 +213,7 @@ impl Gen {
             Type::Primitive(ty) => self.get_primitive_size(ty),
             Type::Pointer(_) => 8,
             Type::Array(arr_type, size) => {
+
                 let type_size = self.get_size(&*arr_type);
                 size * type_size
             }
@@ -325,7 +222,8 @@ impl Gen {
                     .structs
                     .get(struct_name)
                     .expect(&format!("no struct with name {}", struct_name));
-                struct_data.elements.len() * struct_data.element_size
+                println!("struct: {:?}",struct_data);
+                struct_data.element_size
             }
             Type::Unknown => panic!("unkown type"),
         }

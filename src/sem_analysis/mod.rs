@@ -10,8 +10,6 @@ use crate::{
     Tokenizer::TokenType,
 };
 
-use crate::Gen::type_size;
-
 pub mod sem_expr;
 mod sem_stmt;
 
@@ -19,8 +17,9 @@ fn numeric_rank(ty: &Type) -> Option<u8> {
     match ty {
         //Type::Primitive(TokenType::Bool)  => Some(0),
         Type::Primitive(TokenType::CharType) => Some(1),
-        Type::Primitive(TokenType::IntType) => Some(2),
-        Type::Primitive(TokenType::LongType) => Some(3),
+        Type::Primitive(TokenType::ShortType) => Some(2),
+        Type::Primitive(TokenType::IntType) => Some(3),
+        Type::Primitive(TokenType::LongType) => Some(4),
         //Type::Primitive(TokenType::Float) => Some(4),
         _ => None,
     }
@@ -35,6 +34,10 @@ fn is_arithmetic(ty: &Type) -> bool {
         ty,
         Type::Primitive(TokenType::IntType) | Type::Primitive(TokenType::LongType) //Type::Primitive(TokenType::Float)
     )
+}
+
+fn is_ptr_long_pair(a: &Type, b: &Type) -> bool {
+    matches!(a, Type::Pointer(_)) && *b == Type::Primitive(TokenType::LongType)
 }
 
 fn is_integer(ty: &Type) -> bool {
@@ -65,6 +68,29 @@ impl<'a> Analyzer<'a> {
             structs: HashMap::new(),
             current_ret_type: Type::Unknown,
             loop_depth: 0,
+        }
+    }
+    // this is just copy from gen
+    // TODO: make this a trait so and expand it for gen and analyzer
+    pub fn type_size(&self, ty: &Type) -> usize {
+        match ty {
+            Type::Primitive(token) => match token {
+                TokenType::CharType => 1,
+                TokenType::ShortType => 2,
+                TokenType::IntType => 4,
+                TokenType::LongType => 8,
+                _ => panic!("Unsupported primitive type: {:?}", token),
+            },
+            Type::Pointer(_) => 8,
+            Type::Array(elem_type, count) => self.type_size(elem_type) * *count,
+            Type::Struct(name) => {
+                self.structs
+                    .get(name)
+                    .expect(&format!("Unknown struct: {}", name))
+                    .element_size
+                    * self.structs.get(name).unwrap().elements.len()
+            }
+            Type::Unknown => panic!("unkown type"),
         }
     }
 
@@ -104,7 +130,7 @@ impl<'a> Analyzer<'a> {
                         let mut res: HashMap<String, StructField> = HashMap::new();
                         for i in data.fields.iter() {
                             res.insert(i.name.clone(), i.clone());
-                            let el_size = type_size(&i.ty, &self.structs);
+                            let el_size = self.type_size(&i.ty);
                             if element_size < el_size {
                                 element_size = el_size;
                             }
