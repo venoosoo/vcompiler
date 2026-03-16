@@ -1,11 +1,16 @@
 use std::alloc::Layout;
+use std::env;
 use std::fmt::format;
+use std::fs::File;
+use std::io::Read;
 
 use super::*;
 
 use crate::Ir::expr::Expr;
 use crate::Ir::stmt::{LValue, StructDef};
 use crate::Ir::{Stmt, stmt::Declaration};
+use crate::Parser;
+use crate::Tokenizer::Tokenizer;
 impl Gen {
     fn gen_block(&mut self, data: &Vec<Stmt>) {
         self.scopes.push(HashMap::new());
@@ -430,6 +435,36 @@ impl Gen {
                     *max_depth = current;
                 }
             }
+            Stmt::Import(..) => {},
+        }
+    }
+
+    fn gen_import(&mut self, file_name: &String) {
+        let mut base_dir = env::current_dir().unwrap();
+        base_dir.push(file_name);
+        let file = File::open(base_dir);
+        match file {
+            Ok(mut file) => {
+                if self.imported_files.contains(file_name) {
+                    return;
+                }
+                let mut content = String::new();
+                file.read_to_string(&mut content).unwrap();
+                let mut tokenizer = Tokenizer::new(content);
+                tokenizer.tokenize();
+                
+                let mut parser = Parser::Parser::new(tokenizer.m_res);
+                let res = parser.parse();
+
+                self.imported_files.insert(file_name.clone());
+
+                self.reg_inits(&res);
+
+                for i in &res {
+                    self.gen_stmt(i);
+                }
+            }
+            Err(_) => {}
         }
     }
 
@@ -468,6 +503,7 @@ impl Gen {
                 data,
             } => self.gen_func((name, args, ret_type, data)),
             Stmt::InitStruct(struct_data) => {} // skiping because we already added it in first iteration,
+            Stmt::Import(file_name) => self.gen_import(file_name),
         }
     }
 }

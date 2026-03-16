@@ -1,4 +1,6 @@
 use core::panic;
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Write};
 
 use crate::Ir::Stmt;
@@ -22,6 +24,8 @@ pub struct Gen {
     scopes: Vec<HashMap<String, VarData>>,
     structs: HashMap<String, StructData>,
     functions: HashMap<String, FuncData>,
+    imported_files: HashSet<String>,
+    base_dir: PathBuf,
     id: usize,
 }
 
@@ -160,7 +164,7 @@ pub fn lvalue_root(lvalue: &LValue) -> String {
 }
 
 impl Gen {
-    pub fn new(stmts: Vec<Stmt>) -> Gen {
+    pub fn new(stmts: Vec<Stmt>,base_dir: PathBuf) -> Gen {
         Gen {
             stmts,
             current_return_type: Type::Primitive(TokenType::IntType),
@@ -169,6 +173,8 @@ impl Gen {
             stack_pos: 0,
             structs: HashMap::new(),
             functions: HashMap::new(),
+            base_dir,
+            imported_files: HashSet::new(),
             id: 0,
         }
     }
@@ -271,9 +277,7 @@ impl Gen {
         last_scope.insert(name, var_data);
     }
 
-    fn gen_stmts(&mut self) {
-        let stmt = std::mem::take(&mut self.stmts);
-
+    pub fn reg_inits(&mut self, stmt: &Vec<Stmt>) {
         for i in stmt.iter() {
             match i {
                 Stmt::InitFunc {
@@ -289,11 +293,17 @@ impl Gen {
                     self.functions.insert(name.clone(), func_data);
                 }
                 Stmt::InitStruct(data) => {
-                    self.gen_init_struct(data);
+                    self.gen_init_struct(&data);
                 }
                 _ => {}
             }
         }
+    }
+
+    fn gen_stmts(&mut self) {
+        let stmt = std::mem::take(&mut self.stmts);
+
+        self.reg_inits(&stmt);
 
         for i in stmt.iter() {
             self.gen_stmt(i);

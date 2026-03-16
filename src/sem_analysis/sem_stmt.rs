@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, env, fs::File};
 
 use super::*;
 
@@ -187,6 +187,18 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn check_import(&mut self, file_name: &String) {
+        let mut base_dir = env::current_dir().unwrap();
+        base_dir.push(file_name);
+        let file = File::open(base_dir);
+        match file {
+            Ok(_) => {}
+            Err(_) => self
+                .errors
+                .push(SemanticError::FileDoesntExist(file_name.clone())),
+        }
+    }
+
     pub fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Block(data) => self.check_block(data),
@@ -222,6 +234,7 @@ impl<'a> Analyzer<'a> {
                 self.check_init_func((name, args, ret_type, data));
             }
             Stmt::InitStruct(struct_data) => self.check_struct_init(struct_data),
+            Stmt::Import(file_name) => self.check_import(file_name),
         }
     }
 }

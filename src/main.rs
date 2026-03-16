@@ -1,7 +1,7 @@
 use clap::Parser as CliParser;
 use std::{
     fs::File,
-    io::{Read, Write},
+    io::{Read, Write}, path::Path,
 };
 
 use std::fs;
@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("file name is: {}", cli.file);
 
-    let mut file = File::open(cli.file)?;
+    let mut file = File::open(cli.file.clone())?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     println!("file contains: {}", &contents);
@@ -48,7 +48,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     write!(file, "parse result\n{:#?}", res).expect("Failed to write to file");
 
-    let mut generator = Gen::Gen::new(res);
+    let file_path = Path::new(&cli.file);
+    let base_dir = file_path.parent().unwrap().to_path_buf();
+
+    let mut generator = Gen::Gen::new(res,base_dir);
     let asm = generator.gen_asm()?;
     let mut file = File::create("main.asm")?;
     let _res = file.write(asm.as_bytes())?;

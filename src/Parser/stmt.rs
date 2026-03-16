@@ -15,6 +15,7 @@ impl Parser {
             TokenType::Asm => return self.parse_asm_stmt(),
             TokenType::Func => return self.parse_func_init(),
             TokenType::Struct => return self.parse_struct_init(),
+            TokenType::Import => return self.parse_import(),
             ty if self.is_type(&token) => {
                 let stmt = self.parse_declaration();
                 self.expect(TokenType::Semi);
@@ -111,6 +112,12 @@ impl Parser {
             ty: ty,
             initializer: expr,
         }));
+    }
+
+    fn parse_import(&mut self) -> Option<Stmt> {
+        self.consume();
+        let file_name = self.consume();
+        return Some(Stmt::Import(file_name.value.unwrap()));
     }
 
     fn parse_struct_init(&mut self) -> Option<Stmt> {

@@ -95,4 +95,5 @@ pub enum SemanticError {
     DerefNonPointer(Type),
     CircularStruct(String),
     MissingReturn(String),
+    FileDoesntExist(String),
 }

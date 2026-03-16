@@ -63,6 +63,7 @@ pub enum Stmt {
         data: Box<Stmt>,
     },
     InitStruct(StructDef),
+    Import(String),
 }
 
 /// Function argument
