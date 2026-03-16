@@ -98,19 +98,18 @@ impl Expr {
 }
 
 impl RegisterHelper {
-    pub fn insert_reg(&mut self, ty: &Type) -> String {
+    pub fn insert_reg(&mut self, ty: &Type) -> Option<String> {
         if self.reg_stack.len() == 0 {
             let reg: String = reg_for_size("rax", ty);
             self.reg_stack.push(reg.clone());
 
-            return reg;
+            return Some(reg);
         } else if self.reg_stack.len() == 1 {
             let reg: String = reg_for_size("rbx", ty);
             self.reg_stack.push(reg.clone());
-            return reg;
+            return Some(reg);
         } else {
-            println!("what: {:?}", self.reg_stack);
-            self::panic!("in RegisterHelper insert_value tring to insert the 3 value");
+            None
         }
     }
     pub fn get_reg(&mut self) -> String {
@@ -190,8 +189,12 @@ impl Gen {
         expected_type: &Type,
     ) -> String {
         let reg = reg_helper.insert_reg(expected_type);
-        self.emit(format!("    mov {}, {}", reg, num));
-        reg
+        if let Some(asm_reg) = reg {
+            self.emit(format!("    mov {}, {}", asm_reg, num));
+            asm_reg
+        } else {
+            return num.to_string();
+        }
     }
 
     fn gen_expr_var(
@@ -201,31 +204,35 @@ impl Gen {
         expected_type: &Type,
     ) -> String {
         let var_data = self.lookup_var(var_name);
-        let reg = reg_helper.insert_reg(expected_type);
-        match var_data.var_type {
-            Type::Primitive(_) => {
-                let actual_size = self.type_size(&var_data.var_type);
-                let expected_size = self.type_size(expected_type);
-                if expected_size > actual_size {
-                    // sign-extend smaller type into larger register
-                    let src_word = get_word(&var_data.var_type);                    
-                    self.emit(format!(
-                        "    movsx {}, {} [rbp - {}]",
-                        reg, src_word, var_data.stack_pos
-                    ));
-                } else {
-                    let size_word = get_word(expected_type);
-                    self.emit(format!(
-                        "    mov {}, {} [rbp - {}]",
-                        reg, size_word, var_data.stack_pos
-                    ));
+        let some_reg = reg_helper.insert_reg(expected_type);
+        if let Some(reg) = some_reg {
+            match var_data.var_type {
+                Type::Primitive(_) => {
+                    let actual_size = self.type_size(&var_data.var_type);
+                    let expected_size = self.type_size(expected_type);
+                    if expected_size > actual_size {
+                        // sign-extend smaller type into larger register
+                        let src_word = get_word(&var_data.var_type);
+                        self.emit(format!(
+                            "    movsx {}, {} [rbp - {}]",
+                            reg, src_word, var_data.stack_pos
+                        ));
+                    } else {
+                        let size_word = get_word(expected_type);
+                        self.emit(format!(
+                            "    mov {}, {} [rbp - {}]",
+                            reg, size_word, var_data.stack_pos
+                        ));
+                    }
+                }
+                _ => {
+                    self.emit(format!("    lea {}, [rbp - {}]", reg, var_data.stack_pos));
                 }
             }
-            _ => {
-                self.emit(format!("    lea {}, [rbp - {}]", reg, var_data.stack_pos));
-            }
+            reg
+        } else {
+            return format!("[rbp - {}]", var_data.stack_pos);
         }
-        reg
     }
 
     fn gen_expr_binary(
@@ -287,12 +294,16 @@ impl Gen {
 
         self.emit(format!("    call {}", name));
 
-        let reg = reg_helper.insert_reg(expected_type);
-        let sized_rax = reg_for_size("rax", expected_type);
+        let reg_asm = reg_helper.insert_reg(expected_type);
+        if let Some(reg) = reg_asm {
+            let sized_rax = reg_for_size("rax", expected_type);
 
-        self.emit(format!("    mov {}, {}", reg, sized_rax));
+            self.emit(format!("    mov {}, {}", reg, sized_rax));
 
-        reg
+            reg
+        } else {
+            self::panic!("wtf");
+        }
     }
 
     fn gen_expr_struct_init(
@@ -328,8 +339,12 @@ impl Gen {
 
         let result_reg =
             reg_helper.insert_reg(&Type::Pointer(Box::new(Type::Struct(struct_name.clone()))));
-        self.emit(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
-        result_reg
+        if let Some(result_reg) = result_reg {
+            self.emit(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
+            result_reg
+        } else {
+            self::panic!("wtf");
+        }
     }
 
     fn gen_expr_struct_member(
@@ -349,13 +364,17 @@ impl Gen {
         self.emit(format!("    sub {}, {}", base_reg, field.offset));
 
         let result_reg = reg_helper.insert_reg(expected_type);
-        let size_word = get_word(expected_type);
+        if let Some(result_reg) = result_reg {
+            let size_word = get_word(expected_type);
 
-        self.emit(format!(
-            "    mov {}, {} [{}]",
-            result_reg, size_word, base_reg
-        ));
-        result_reg
+            self.emit(format!(
+                "    mov {}, {} [{}]",
+                result_reg, size_word, base_reg
+            ));
+            result_reg
+        } else {
+            self::panic!("wtf");
+        }
     }
 
     fn gen_expr_deref(
@@ -369,10 +388,14 @@ impl Gen {
             Some(reg_helper),
             &Type::Pointer(Box::new(expected_type.clone())),
         );
-        let reg = reg_helper.insert_reg(expected_type);
-        let size_word = get_word(expected_type);
-        self.emit(format!("    mov {}, {} [{}]", reg, size_word, ptr_reg));
-        reg
+        let asm_reg = reg_helper.insert_reg(expected_type);
+        if let Some(reg) = asm_reg {
+            let size_word = get_word(expected_type);
+            self.emit(format!("    mov {}, {} [{}]", reg, size_word, ptr_reg));
+            reg
+        } else {
+            self::panic!("wtf");
+        }
     }
 
     fn gen_expr_addres_of(&mut self, reg_helper: &mut RegisterHelper, expr: &Box<Expr>) -> String {
@@ -380,11 +403,14 @@ impl Gen {
         match &**expr {
             Expr::Variable(name) => {
                 let var = self.lookup_var(name);
-                let reg = reg_helper.insert_reg(&ptr_type);
+                let asm_reg = reg_helper.insert_reg(&ptr_type);
+                if let Some(reg) = asm_reg {
+                    self.emit(format!("    lea {}, [rbp - {}]", reg, var.stack_pos));
 
-                self.emit(format!("    lea {}, [rbp - {}]", reg, var.stack_pos));
-
-                reg
+                    reg
+                } else {
+                    self::panic!("wtf");
+                }
             }
 
             Expr::StructMember { base, name } => {
@@ -413,6 +439,7 @@ impl Gen {
                     Some(reg_helper),
                     &Type::Primitive(TokenType::IntType),
                 );
+
                 let elem_size = self.type_size(&elem_type);
 
                 self.emit(format!(
@@ -440,12 +467,22 @@ impl Gen {
         index: &Box<Expr>,
         expected_type: &Type,
     ) -> String {
-        let base_reg = self.eval_expr(base, Some(reg_helper), &base.get_type_of_expr(self));
+        let arr_ty = &base.get_type_of_expr(self);
+        let base_reg = self.eval_expr(base, Some(reg_helper), arr_ty);
         let index_reg = self.eval_expr(
             index,
             Some(reg_helper),
-            &Type::Primitive(TokenType::IntType),
+            &Type::Primitive(TokenType::LongType),
         );
+        match arr_ty {
+            Type::Array(ty, size) => {
+                self.emit(format!("    cmp {}, {}", index_reg, size));
+                self.emit(format!("    jge __bounds_fail__"));
+                self.emit(format!("    cmp {}, 0", index_reg));
+                self.emit(format!("    jl __bounds_fail__"));
+            }
+            _ => {}
+        }
         let elem_size = self.type_size(expected_type);
 
         self.emit(format!(
@@ -453,16 +490,20 @@ impl Gen {
             index_reg, index_reg, elem_size
         ));
         self.emit(format!("    add {}, {}", base_reg, index_reg));
+        reg_helper.get_reg();
+        let reg = reg_helper.insert_reg(expected_type);
+        if let Some(result_reg) = reg {
+            let size_word = get_word(expected_type);
 
-        let result_reg = reg_helper.insert_reg(expected_type);
-        let size_word = get_word(expected_type);
+            self.emit(format!(
+                "    mov {}, {} [{}]",
+                result_reg, size_word, base_reg
+            ));
 
-        self.emit(format!(
-            "    mov {}, {} [{}]",
-            result_reg, size_word, base_reg
-        ));
-
-        result_reg
+            result_reg
+        } else {
+            self::panic!("wtf");
+        }
     }
 
     fn gen_array_init(
@@ -476,11 +517,9 @@ impl Gen {
             _ => self::panic!("gen_array_init called with non-array type"),
         };
         let elem_size = self.type_size(&elem_type);
-        let total_size = elem_size * elements.len();
         let base_pos = self.stack_pos;
 
         for (i, elem) in elements.iter().enumerate() {
-            let value_reg = self.eval_expr(elem, Some(reg_helper), &elem_type);
             let sized_reg = reg_for_size("rax", &elem_type);
             let size_word = get_word(&elem_type);
             let offset = base_pos - (i * elem_size);
@@ -491,11 +530,14 @@ impl Gen {
             ));
             reg_helper.reg_stack.pop();
         }
+        let reg = reg_helper.insert_reg(&Type::Pointer(Box::new(elem_type.clone())));
+        if let Some(result_reg) = reg {
+            self.emit(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
 
-        let result_reg = reg_helper.insert_reg(&Type::Pointer(Box::new(elem_type.clone())));
-        self.emit(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
-
-        result_reg
+            result_reg
+        } else {
+            self::panic!("wtf");
+        }
     }
 
     pub fn eval_expr(
@@ -513,7 +555,6 @@ impl Gen {
             };
             &mut local_helper
         };
-
         match expr {
             Expr::ArrayInit { elements } => {
                 self.gen_array_init(reg_helper, elements, expected_type)

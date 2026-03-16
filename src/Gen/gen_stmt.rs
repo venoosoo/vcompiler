@@ -94,6 +94,15 @@ impl Gen {
             LValue::Index { base, index } => {
                 let (addr, ty) = self.calc_lvalue(base);
                 let index_reg = self.eval_expr(index, None, &ty); // evaluate index
+                match &ty {
+                    Type::Array(ty, size) => {
+                        self.emit(format!("    cmp {}, {}", index_reg, size));
+                        self.emit(format!("    jge __bounds_fail__"));
+                        self.emit(format!("    cmp {}, 0", index_reg));
+                        self.emit(format!("    jl __bounds_fail__"));
+                    }
+                    _ => {}
+                }
                 // assume element size is 4 bytes (adjust if needed)
                 let elem_size = match ty {
                     Type::Primitive(TokenType::IntType) => 4,
@@ -178,7 +187,7 @@ impl Gen {
         let (init, condition, update, body) = data;
 
         let id = self.get_id();
-
+        self.scopes.push(HashMap::new());
         if let Some(init_stmt) = init {
             self.gen_stmt(init_stmt);
         }
@@ -192,9 +201,9 @@ impl Gen {
 
         self.gen_stmt(&body);
         if let Some(update_stmt) = update {
-            println!("upd_stmt: {:?}", update_stmt);
             self.gen_stmt(update_stmt);
         }
+        self.scopes.pop();
         self.emit(format!("    jmp for_start_{}", id));
 
         self.emit(format!("for_end_{}:", id));
@@ -370,7 +379,6 @@ impl Gen {
             }
 
             Stmt::Declaration(decl) => {
-                println!("wtf");
                 let new_depth = current + self.type_size(&decl.ty);
                 if new_depth > *max_depth {
                     *max_depth = new_depth;

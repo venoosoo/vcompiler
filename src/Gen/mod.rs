@@ -213,7 +213,6 @@ impl Gen {
             Type::Primitive(ty) => self.get_primitive_size(ty),
             Type::Pointer(_) => 8,
             Type::Array(arr_type, size) => {
-
                 let type_size = self.get_size(&*arr_type);
                 size * type_size
             }
@@ -222,7 +221,7 @@ impl Gen {
                     .structs
                     .get(struct_name)
                     .expect(&format!("no struct with name {}", struct_name));
-                println!("struct: {:?}",struct_data);
+                println!("struct: {:?}", struct_data);
                 struct_data.element_size
             }
             Type::Unknown => panic!("unkown type"),
@@ -251,6 +250,10 @@ impl Gen {
         self.emit("    xor rdi, rdi".to_string());
         self.emit("    syscall".to_string());
         self.gen_stmts();
+        self.emit("__bounds_fail__:".to_string());
+        self.emit("    mov rax, 60".to_string());
+        self.emit("    mov rdi, 1".to_string());
+        self.emit("    syscall".to_string());
         Ok(self.m_out.clone())
     }
 
