@@ -102,10 +102,9 @@ Semantic Analysis — type checking, variable resolution
 
 ## In progress / planned
 
-- 🔧 Better error messages (currently panics with token info)
 - 🔧 String literals / string handling
 - 🔧 Standard library (print, memory allocation)
-- 🔧 Working semantic analysis
+- 🔧 Fully Working semantic analysis
 
 ---
 
