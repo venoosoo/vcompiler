@@ -33,57 +33,49 @@ fn align16(n: usize) -> usize {
     (n + 15) & !15
 }
 
-pub fn reg_for_size(base: &str, ty: &Type) -> String {
+pub fn reg_for_size(base: &str, ty: &Type) -> Option<String> {
     let size = match ty {
         Type::Primitive(token) => match token {
             TokenType::CharType => 1,
             TokenType::ShortType => 2,
             TokenType::IntType => 4,
             TokenType::LongType => 8,
-            _ => panic!("Unsupported type"),
+            _ => return None,
         },
-        Type::Unknown => panic!("unkown type"),
+        Type::Unknown => return None,
         Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) => 8,
     };
 
     match (base, size) {
-        ("rax", 8) => "rax".into(),
-        ("rax", 4) => "eax".into(),
-        ("rax", 2) => "ax".into(),
-        ("rax", 1) => "al".into(),
-
-        ("rbx", 8) => "rbx".into(),
-        ("rbx", 4) => "ebx".into(),
-        ("rbx", 2) => "bx".into(),
-        ("rbx", 1) => "bl".into(),
-
-        ("rcx", 8) => "rcx".into(),
-        ("rcx", 4) => "ecx".into(),
-        ("rcx", 2) => "cx".into(),
-        ("rcx", 1) => "cl".into(),
-
-        ("rdx", 8) => "rdx".into(),
-        ("rdx", 4) => "edx".into(),
-        ("rdx", 2) => "dx".into(),
-        ("rdx", 1) => "dl".into(),
-
-        ("rsi", 8) => "rsi".into(),
-        ("rsi", 4) => "esi".into(),
-        ("rsi", 2) => "si".into(),
-        ("rsi", 1) => "sil".into(),
-
-        ("rdi", 8) => "rdi".into(),
-        ("rdi", 4) => "edi".into(),
-        ("rdi", 2) => "di".into(),
-        ("rdi", 1) => "dil".into(),
-
-        // r8–r15 follow predictable pattern
-        (reg, 8) => reg.to_string(),
-        (reg, 4) if reg.starts_with('r') => format!("{}d", reg),
-        (reg, 2) if reg.starts_with('r') => format!("{}w", reg),
-        (reg, 1) if reg.starts_with('r') => format!("{}b", reg),
-
-        _ => panic!("Unsupported register: {}", base),
+        ("rax", 8) => Some("rax".into()),
+        ("rax", 4) => Some("eax".into()),
+        ("rax", 2) => Some("ax".into()),
+        ("rax", 1) => Some("al".into()),
+        ("rbx", 8) => Some("rbx".into()),
+        ("rbx", 4) => Some("ebx".into()),
+        ("rbx", 2) => Some("bx".into()),
+        ("rbx", 1) => Some("bl".into()),
+        ("rcx", 8) => Some("rcx".into()),
+        ("rcx", 4) => Some("ecx".into()),
+        ("rcx", 2) => Some("cx".into()),
+        ("rcx", 1) => Some("cl".into()),
+        ("rdx", 8) => Some("rdx".into()),
+        ("rdx", 4) => Some("edx".into()),
+        ("rdx", 2) => Some("dx".into()),
+        ("rdx", 1) => Some("dl".into()),
+        ("rsi", 8) => Some("rsi".into()),
+        ("rsi", 4) => Some("esi".into()),
+        ("rsi", 2) => Some("si".into()),
+        ("rsi", 1) => Some("sil".into()),
+        ("rdi", 8) => Some("rdi".into()),
+        ("rdi", 4) => Some("edi".into()),
+        ("rdi", 2) => Some("di".into()),
+        ("rdi", 1) => Some("dil".into()),
+        (reg, 8) => Some(reg.to_string()),
+        (reg, 4) if reg.starts_with('r') => Some(format!("{}d", reg)),
+        (reg, 2) if reg.starts_with('r') => Some(format!("{}w", reg)),
+        (reg, 1) if reg.starts_with('r') => Some(format!("{}b", reg)),
+        _ => None,
     }
 }
 
@@ -164,7 +156,7 @@ pub fn lvalue_root(lvalue: &LValue) -> String {
 }
 
 impl Gen {
-    pub fn new(stmts: Vec<Stmt>,base_dir: PathBuf) -> Gen {
+    pub fn new(stmts: Vec<Stmt>, base_dir: PathBuf) -> Gen {
         Gen {
             stmts,
             current_return_type: Type::Primitive(TokenType::IntType),

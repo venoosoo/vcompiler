@@ -222,7 +222,7 @@ impl Gen {
             let reg = self.eval_expr(ret_expr, None, &ret_type);
 
             // Move result into rax properly sized
-            let sized_rax = reg_for_size("rax", &ret_type);
+            let sized_rax = reg_for_size("rax", &ret_type).unwrap();
 
             if reg != sized_rax {
                 self.emit(format!("    mov {}, {}", sized_rax, reg));
@@ -272,7 +272,7 @@ impl Gen {
                 self::panic!("too many args, stack args not supported yet");
             }
             pos += self.type_size(&decl.ty);
-            let reg = reg_for_size(arg_regs[i], &decl.ty);
+            let reg = reg_for_size(arg_regs[i], &decl.ty).unwrap();
 
             self.emit(format!("    mov [rbp - {}], {}", pos, reg));
         }
@@ -435,14 +435,13 @@ impl Gen {
                     *max_depth = current;
                 }
             }
-            Stmt::Import(..) => {},
+            Stmt::Import(..) => {}
         }
     }
 
     fn gen_import(&mut self, file_name: &String) {
-        let mut base_dir = env::current_dir().unwrap();
-        base_dir.push(file_name);
-        let file = File::open(base_dir);
+        let full_path = self.base_dir.join(file_name);
+        let file = File::open(full_path);
         match file {
             Ok(mut file) => {
                 if self.imported_files.contains(file_name) {
@@ -452,7 +451,7 @@ impl Gen {
                 file.read_to_string(&mut content).unwrap();
                 let mut tokenizer = Tokenizer::new(content);
                 tokenizer.tokenize();
-                
+
                 let mut parser = Parser::Parser::new(tokenizer.m_res);
                 let res = parser.parse();
 

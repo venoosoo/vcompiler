@@ -100,14 +100,22 @@ impl Expr {
 impl RegisterHelper {
     pub fn insert_reg(&mut self, ty: &Type) -> Option<String> {
         if self.reg_stack.len() == 0 {
-            let reg: String = reg_for_size("rax", ty);
-            self.reg_stack.push(reg.clone());
+            let reg_res:Option<String>  = reg_for_size("rax", ty);
+            if let Some(reg) = reg_res {
+                self.reg_stack.push(reg.clone());
+                return Some(reg);
+            } else {
+                return None;
+            }
 
-            return Some(reg);
         } else if self.reg_stack.len() == 1 {
-            let reg: String = reg_for_size("rbx", ty);
-            self.reg_stack.push(reg.clone());
-            return Some(reg);
+            let reg_res = reg_for_size("rbx", ty);
+            if let Some(reg) = reg_res {
+                self.reg_stack.push(reg.clone());
+                return Some(reg);
+            } else {
+                return  None;
+            }
         } else {
             None
         }
@@ -145,7 +153,7 @@ impl Gen {
                     self.emit(format!(
                         "    mov {}, {}",
                         left_reg,
-                        reg_for_size("rdx", expected_type)
+                        reg_for_size("rdx", expected_type).unwrap()
                     ));
                 }
             }
@@ -293,16 +301,15 @@ impl Gen {
         }
 
         self.emit(format!("    call {}", name));
-
         let reg_asm = reg_helper.insert_reg(expected_type);
         if let Some(reg) = reg_asm {
-            let sized_rax = reg_for_size("rax", expected_type);
+            let sized_rax = reg_for_size("rax", expected_type).unwrap();
 
             self.emit(format!("    mov {}, {}", reg, sized_rax));
 
             reg
         } else {
-            self::panic!("wtf");
+            return "rax".to_string();
         }
     }
 
@@ -326,7 +333,7 @@ impl Gen {
 
             let field_type = &field.ty;
 
-            let sized_reg = reg_for_size("rax", field_type);
+            let sized_reg = reg_for_size("rax", field_type).unwrap();
             let size_word = get_word(field_type);
 
             let field_pos = base_pos - field.offset;
@@ -520,7 +527,7 @@ impl Gen {
         let base_pos = self.stack_pos;
 
         for (i, elem) in elements.iter().enumerate() {
-            let sized_reg = reg_for_size("rax", &elem_type);
+            let sized_reg = reg_for_size("rax", &elem_type).unwrap();
             let size_word = get_word(&elem_type);
             let offset = base_pos - (i * elem_size);
 

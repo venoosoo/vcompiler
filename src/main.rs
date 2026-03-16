@@ -1,7 +1,8 @@
 use clap::Parser as CliParser;
 use std::{
     fs::File,
-    io::{Read, Write}, path::Path,
+    io::{Read, Write},
+    path::Path,
 };
 
 use std::fs;
@@ -51,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let file_path = Path::new(&cli.file);
     let base_dir = file_path.parent().unwrap().to_path_buf();
 
-    let mut generator = Gen::Gen::new(res,base_dir);
+    let mut generator = Gen::Gen::new(res, base_dir);
     let asm = generator.gen_asm()?;
     let mut file = File::create("main.asm")?;
     let _res = file.write(asm.as_bytes())?;
