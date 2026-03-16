@@ -1,4 +1,5 @@
 use crate::Ir::expr::{BinOp, Expr, UnaryOp};
+use crate::sem_analysis::coerce_numeric;
 
 use super::*;
 use super::{get_word, reg_for_size};
@@ -28,14 +29,7 @@ impl Expr {
             Expr::Binary { op: _, left, right } => {
                 let lty = left.get_type_of_expr(gen_helper);
                 let rty = right.get_type_of_expr(gen_helper);
-                if lty != rty {
-                    self::panic!(
-                        "Type mismatch in binary operation: left: {:?}, right: {:?}",
-                        lty,
-                        rty
-                    );
-                }
-                lty
+                coerce_numeric(&lty, &rty)
             }
             Expr::StructInit {
                 struct_name_ty,
@@ -210,11 +204,22 @@ impl Gen {
         let reg = reg_helper.insert_reg(expected_type);
         match var_data.var_type {
             Type::Primitive(_) => {
-                let size_word = get_word(expected_type);
-                self.emit(format!(
-                    "    mov {}, {} [rbp - {}]",
-                    reg, size_word, var_data.stack_pos
-                ));
+                let actual_size = self.type_size(&var_data.var_type);
+                let expected_size = self.type_size(expected_type);
+                if expected_size > actual_size {
+                    // sign-extend smaller type into larger register
+                    let src_word = get_word(&var_data.var_type);                    
+                    self.emit(format!(
+                        "    movsx {}, {} [rbp - {}]",
+                        reg, src_word, var_data.stack_pos
+                    ));
+                } else {
+                    let size_word = get_word(expected_type);
+                    self.emit(format!(
+                        "    mov {}, {} [rbp - {}]",
+                        reg, size_word, var_data.stack_pos
+                    ));
+                }
             }
             _ => {
                 self.emit(format!("    lea {}, [rbp - {}]", reg, var_data.stack_pos));

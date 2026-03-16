@@ -50,7 +50,7 @@ fn is_integer(ty: &Type) -> bool {
     )
 }
 
-fn coerce_numeric(a: &Type, b: &Type) -> Type {
+pub fn coerce_numeric(a: &Type, b: &Type) -> Type {
     if numeric_rank(a) >= numeric_rank(b) {
         a.clone()
     } else {
