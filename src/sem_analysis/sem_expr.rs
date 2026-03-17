@@ -13,10 +13,12 @@ use crate::{
 use super::*;
 
 impl<'a> Analyzer<'a> {
-    fn check_num(&mut self, num: &i64) -> Type {
-        return Type::Primitive(TokenType::IntType);
+    fn check_num(&mut self, num: &i64, expected_ty: &Type) -> Type {
+        match expected_ty {
+            Type::Primitive(_) => expected_ty.clone(),
+            _ => Type::Primitive(TokenType::IntType),
+        }
     }
-
     fn check_var(&mut self, var: &String) -> Type {
         let var_data = self.lookup(var);
         if let Some(var) = var_data {
@@ -30,9 +32,15 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_binary(&mut self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
-        let l_type = self.check_expr(left);
-        let r_type: Type = self.check_expr(right);
+    fn check_binary(
+        &mut self,
+        op: &BinOp,
+        left: &Box<Expr>,
+        right: &Box<Expr>,
+        expected_ty: &Type,
+    ) -> Type {
+        let l_type = self.check_expr(left, expected_ty);
+        let r_type: Type = self.check_expr(right, expected_ty);
         let res = self.check_binary_types(op, l_type, r_type);
         match res {
             Ok(ty) => ty,
@@ -43,8 +51,8 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
-        let expr_type = self.check_expr(expr);
+    fn check_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>, expected_ty: &Type) -> Type {
+        let expr_type = self.check_expr(expr, expected_ty);
         let valid = match op {
             UnaryOp::Neg => is_arithmetic(&expr_type), // -int, -long, -float ok; -char not
             UnaryOp::Not => is_numeric(&expr_type),    // !int, !long etc (C-style, no bool yet)
@@ -126,7 +134,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_call(&mut self, name: &String, args: &Vec<Expr>) -> Type {
+    fn check_call(&mut self, name: &String, args: &Vec<Expr>, expected_ty: &Type) -> Type {
         let res = self.functions.get(name).cloned();
         if let Some(func_data) = res {
             if func_data.args.len() != args.len() {
@@ -141,7 +149,7 @@ impl<'a> Analyzer<'a> {
             let error_len = self.errors.len();
 
             for (arg, expr) in args.iter().enumerate() {
-                let expr_ty = self.check_expr(expr);
+                let expr_ty = self.check_expr(expr, expected_ty);
                 if !self.check_types(&func_data.args[arg].arg_type, &expr_ty) {
                     self.errors.push(SemanticError::ArgTypeMismatch {
                         func: name.clone(),
@@ -194,8 +202,8 @@ impl<'a> Analyzer<'a> {
         Type::Struct(struct_name.to_string())
     }
 
-    fn check_struct_member(&mut self, base: &Box<Expr>, name: &String) -> Type {
-        let base = self.check_expr(base);
+    fn check_struct_member(&mut self, base: &Box<Expr>, name: &String, expected_ty: &Type) -> Type {
+        let base = self.check_expr(base, expected_ty);
         match base {
             Type::Struct(struct_name) => {
                 let res = self.structs.get(&struct_name);
@@ -223,8 +231,8 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_deref(&mut self, expr: &Box<Expr>) -> Type {
-        let expr_ty = self.check_expr(expr);
+    fn check_deref(&mut self, expr: &Box<Expr>, expected_ty: &Type) -> Type {
+        let expr_ty = self.check_expr(expr, expected_ty);
         match expr_ty {
             Type::Pointer(ty) => {
                 return *ty.clone();
@@ -236,14 +244,14 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_addres_of(&mut self, expr: &Box<Expr>) -> Type {
-        let expr_ty = self.check_expr(expr);
+    fn check_addres_of(&mut self, expr: &Box<Expr>, expected_ty: &Type) -> Type {
+        let expr_ty = self.check_expr(expr, expected_ty);
         return Type::Pointer(Box::new(expr_ty));
     }
 
-    fn check_index(&mut self, base: &Box<Expr>, index: &Box<Expr>) -> Type {
-        let base_ty = self.check_expr(base);
-        let index_ty = self.check_expr(index);
+    fn check_index(&mut self, base: &Box<Expr>, index: &Box<Expr>, expected_ty: &Type) -> Type {
+        let base_ty = self.check_expr(base, expected_ty);
+        let index_ty = self.check_expr(index, expected_ty);
 
         if !is_numeric(&index_ty) {
             self.errors
@@ -261,16 +269,16 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_array_init(&mut self, elements: &Vec<Expr>) -> Type {
+    fn check_array_init(&mut self, elements: &Vec<Expr>, expected_ty: &Type) -> Type {
         if elements.is_empty() {
             self.errors.push(SemanticError::EmptyArray);
             return Type::Unknown;
         }
 
-        let first_ty = self.check_expr(&elements[0]);
+        let first_ty = expected_ty;
 
         for elem in elements.iter().skip(1) {
-            let elem_ty = self.check_expr(elem);
+            let elem_ty = self.check_expr(elem, expected_ty);
             if !self.check_types(&first_ty, &elem_ty) {
                 self.errors.push(SemanticError::TypeMismatch {
                     expected: first_ty.clone(),
@@ -279,26 +287,26 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Type::Array(Box::new(first_ty), elements.len())
+        Type::Array(Box::new(first_ty.clone()), elements.len())
     }
 
-    pub fn check_expr(&mut self, expr: &Expr) -> Type {
+    pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {
         match expr {
-            Expr::Number(num) => self.check_num(num),
+            Expr::Number(num) => self.check_num(num, expected_ty),
             Expr::Float(num) => panic!("not implemented"),
             Expr::Variable(var) => self.check_var(var),
-            Expr::Binary { op, left, right } => self.check_binary(op, left, right),
-            Expr::Unary { op, expr } => self.check_unary(op, expr),
-            Expr::Call { name, args } => self.check_call(name, args),
+            Expr::Binary { op, left, right } => self.check_binary(op, left, right, expected_ty),
+            Expr::Unary { op, expr } => self.check_unary(op, expr, expected_ty),
+            Expr::Call { name, args } => self.check_call(name, args, expected_ty),
             Expr::StructInit {
                 struct_name_ty,
                 fields,
             } => self.check_struct_expr(struct_name_ty, fields),
-            Expr::StructMember { base, name } => self.check_struct_member(base, name),
-            Expr::Deref(expr) => self.check_deref(expr),
-            Expr::AddressOf(expr) => self.check_addres_of(expr),
-            Expr::Index { base, index } => self.check_index(base, index),
-            Expr::ArrayInit { elements } => self.check_array_init(elements),
+            Expr::StructMember { base, name } => self.check_struct_member(base, name, expected_ty),
+            Expr::Deref(expr) => self.check_deref(expr, expected_ty),
+            Expr::AddressOf(expr) => self.check_addres_of(expr, expected_ty),
+            Expr::Index { base, index } => self.check_index(base, index, expected_ty),
+            Expr::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
         }
     }
 }

@@ -48,6 +48,7 @@ pub enum TokenType {
     Func,
     Colon,
     Import,
+    Global,
     Semi,
 }
 #[derive(Clone, Debug)]
@@ -136,6 +137,7 @@ impl Tokenizer {
                     "asm" => self.push_token(TokenType::Asm, None),
                     "fn" => self.push_token(TokenType::Func, None),
                     "import" => self.push_token(TokenType::Import, None),
+                    "global" => self.push_token(TokenType::Global, None),
                     // we think its variable
                     _ => self.push_token(TokenType::Var, Some(self.m_buf.clone())),
                 }

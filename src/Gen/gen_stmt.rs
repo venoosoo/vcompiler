@@ -22,14 +22,20 @@ impl Gen {
         self.stack_pos = temp_stack_pos;
     }
 
-    fn gen_declaration(&mut self, data: &Declaration) {
-        let stack_pos = self.alloc_type(&data.ty);
+    fn gen_declaration(&mut self, data: &Declaration, global_flag: bool) {
+        let mut stack_pos = 0;
 
-        if let Some(expr_data) = &data.initializer {
+        if !global_flag {
+            stack_pos = self.alloc_type(&data.ty);
+        }
+
+        if let Some(expr_data) = &data.initializer
+            && !global_flag
+        {
             let reg = self.eval_expr(expr_data, None, &data.ty);
             match data.ty {
                 Type::Primitive(_) | Type::Pointer(_) => {
-                    self.emit(format!("    mov [rbp - {}], {}", stack_pos, reg));
+                    self.emit_main(format!("    mov [rbp - {}], {}", stack_pos, reg));
                 }
                 _ => {}
             }
@@ -38,7 +44,9 @@ impl Gen {
         if current_scope.contains_key(&data.name) {
             self::panic!("Variable already declared in this scope");
         }
+
         let var_data = VarData {
+            global_flag,
             stack_pos,
             var_type: data.ty.clone(),
         };
@@ -49,7 +57,11 @@ impl Gen {
         match target {
             LValue::Variable(name) => {
                 let var = self.lookup_var(name);
-                (Addr::Stack(var.stack_pos as isize), var.var_type.clone())
+                if !var.global_flag {
+                    (Addr::Stack(var.stack_pos as isize), var.var_type.clone())
+                } else {
+                    (Addr::Reg(format!("[rel {}]", name)), var.var_type.clone())
+                }
             }
 
             LValue::Field { base, name } => {
@@ -73,7 +85,7 @@ impl Gen {
 
                             Addr::Reg(reg) => {
                                 // subtract offset from register base address
-                                self.emit(format!("    sub {}, {}", reg, field.offset));
+                                self.emit_main(format!("    sub {}, {}", reg, field.offset));
                                 (Addr::Reg(reg), field_type)
                             }
                         }
@@ -88,7 +100,7 @@ impl Gen {
                 match ty {
                     Type::Pointer(inner_ty) => {
                         // rsi will hold dereferenced pointer at runtime
-                        self.emit(format!(
+                        self.emit_main(format!(
                             "    mov rsi, {}",
                             match addr {
                                 Addr::Stack(pos) => format!("[rbp - {}]", pos),
@@ -106,10 +118,10 @@ impl Gen {
                 let index_reg = self.eval_expr(index, None, &ty); // evaluate index
                 match &ty {
                     Type::Array(ty, size) => {
-                        self.emit(format!("    cmp {}, {}", index_reg, size));
-                        self.emit(format!("    jge __bounds_fail__"));
-                        self.emit(format!("    cmp {}, 0", index_reg));
-                        self.emit(format!("    jl __bounds_fail__"));
+                        self.emit_main(format!("    cmp {}, {}", index_reg, size));
+                        self.emit_main(format!("    jge __bounds_fail__"));
+                        self.emit_main(format!("    cmp {}, 0", index_reg));
+                        self.emit_main(format!("    jl __bounds_fail__"));
                     }
                     _ => {}
                 }
@@ -120,7 +132,7 @@ impl Gen {
                     Type::Primitive(TokenType::CharType) => 1,
                     _ => 8, // for pointers / structs
                 };
-                self.emit(format!(
+                self.emit_main(format!(
                     "    lea rax, [{} + {} * {}]",
                     match addr {
                         Addr::Stack(pos) => format!("rbp - {}", pos),
@@ -141,11 +153,11 @@ impl Gen {
 
         match addr {
             Addr::Stack(pos) => {
-                self.emit(format!("    mov [rbp - {}], {}", pos, val_reg));
+                self.emit_main(format!("    mov [rbp - {}], {}", pos, val_reg));
             }
 
             Addr::Reg(reg) => {
-                self.emit(format!("    mov [{}], {}", reg, val_reg));
+                self.emit_main(format!("    mov {}, {}", reg, val_reg));
             }
         }
     }
@@ -154,35 +166,35 @@ impl Gen {
         let (condition, if_block, else_block) = data;
 
         let cond_reg = self.eval_expr(condition, None, &Type::Primitive(TokenType::LongType));
-        self.emit(format!("    cmp {}, 0", cond_reg));
+        self.emit_main(format!("    cmp {}, 0", cond_reg));
 
         let id = self.get_id();
 
         if let Some(else_stmt) = else_block {
-            self.emit(format!("    je else_{}", id));
-            self.emit(format!("if_{}:", id));
+            self.emit_main(format!("    je else_{}", id));
+            self.emit_main(format!("if_{}:", id));
             self.gen_stmt(if_block);
-            self.emit(format!("    jmp end_if_{}", id));
-            self.emit(format!("else_{}:", id));
+            self.emit_main(format!("    jmp end_if_{}", id));
+            self.emit_main(format!("else_{}:", id));
             self.gen_stmt(else_stmt);
         } else {
-            self.emit(format!("    je end_if_{}", id));
-            self.emit(format!("if_{}:", id));
+            self.emit_main(format!("    je end_if_{}", id));
+            self.emit_main(format!("if_{}:", id));
             self.gen_stmt(if_block);
         }
-        self.emit(format!("end_if_{}:", id));
+        self.emit_main(format!("end_if_{}:", id));
     }
 
     pub fn gen_while(&mut self, data: (&Expr, &Box<Stmt>)) {
         let (condition, body) = data;
         let id = self.get_id();
-        self.emit(format!("while_{}:", id));
+        self.emit_main(format!("while_{}:", id));
         let cond_reg = self.eval_expr(condition, None, &Type::Primitive(TokenType::LongType));
-        self.emit(format!("    cmp {}, 0", cond_reg));
-        self.emit(format!("    jne end_while_{}", id));
+        self.emit_main(format!("    cmp {}, 0", cond_reg));
+        self.emit_main(format!("    jne end_while_{}", id));
         self.gen_stmt(&*body);
-        self.emit(format!("    je while_{}", id));
-        self.emit(format!("end_while_{}:", id));
+        self.emit_main(format!("    je while_{}", id));
+        self.emit_main(format!("end_while_{}:", id));
     }
 
     pub fn gen_for(
@@ -201,12 +213,12 @@ impl Gen {
         if let Some(init_stmt) = init {
             self.gen_stmt(init_stmt);
         }
-        self.emit(format!("for_start_{}:", id));
+        self.emit_main(format!("for_start_{}:", id));
 
         if let Some(cond_expr) = condition {
             let cond_reg = self.eval_expr(cond_expr, None, &Type::Primitive(TokenType::LongType));
-            self.emit(format!("    cmp {}, 0", cond_reg));
-            self.emit(format!("    je for_end_{}", id));
+            self.emit_main(format!("    cmp {}, 0", cond_reg));
+            self.emit_main(format!("    je for_end_{}", id));
         }
 
         self.gen_stmt(&body);
@@ -214,9 +226,9 @@ impl Gen {
             self.gen_stmt(update_stmt);
         }
         self.scopes.pop();
-        self.emit(format!("    jmp for_start_{}", id));
+        self.emit_main(format!("    jmp for_start_{}", id));
 
-        self.emit(format!("for_end_{}:", id));
+        self.emit_main(format!("for_end_{}:", id));
     }
 
     fn gen_ret(&mut self, expr: &Option<Expr>) {
@@ -230,13 +242,13 @@ impl Gen {
             let sized_rax = reg_for_size("rax", &ret_type).unwrap();
 
             if reg != sized_rax {
-                self.emit(format!("    mov {}, {}", sized_rax, reg));
+                self.emit_main(format!("    mov {}, {}", sized_rax, reg));
             }
         }
 
-        self.emit("    mov rsp, rbp".to_string());
-        self.emit("    pop rbp".to_string());
-        self.emit("    ret".to_string());
+        self.emit_main("    mov rsp, rbp".to_string());
+        self.emit_main("    pop rbp".to_string());
+        self.emit_main("    ret".to_string());
     }
 
     pub fn gen_inline_asm(&mut self, data: &Vec<String>) {
@@ -260,7 +272,7 @@ impl Gen {
                     buf.push_str(&format!("[rbp - {}]", var.stack_pos));
                 }
             }
-            self.emit(format!("    {}", buf));
+            self.emit_main(format!("    {}", buf));
         }
     }
 
@@ -279,7 +291,7 @@ impl Gen {
             pos += self.type_size(&decl.ty);
             let reg = reg_for_size(arg_regs[i], &decl.ty).unwrap();
 
-            self.emit(format!("    mov [rbp - {}], {}", pos, reg));
+            self.emit_main(format!("    mov [rbp - {}], {}", pos, reg));
         }
     }
 
@@ -305,10 +317,10 @@ impl Gen {
             res
         };
         let func_stack_frame = align16(body_size + arg_size);
-        self.emit(format!("{}:", name));
-        self.emit(format!("    push rbp"));
-        self.emit(format!("    mov rbp, rsp"));
-        self.emit(format!("    sub rsp, {}", func_stack_frame));
+        self.emit_main(format!("{}:", name));
+        self.emit_main(format!("    push rbp"));
+        self.emit_main(format!("    mov rbp, rsp"));
+        self.emit_main(format!("    sub rsp, {}", func_stack_frame));
         self.scopes.push(HashMap::new());
         let saved_stack = self.stack_pos;
         self.compile_args(args);
@@ -321,9 +333,9 @@ impl Gen {
         match ret_type {
             Type::Primitive(ty) => {
                 if *ty == TokenType::Void {
-                    self.emit(format!("    mov rsp, rbp"));
-                    self.emit(format!("    pop rbp"));
-                    self.emit(format!("    ret"));
+                    self.emit_main(format!("    mov rsp, rbp"));
+                    self.emit_main(format!("    pop rbp"));
+                    self.emit_main(format!("    ret"));
                 }
             }
             _ => {}
@@ -344,17 +356,17 @@ impl Gen {
 
         self.structs.insert(data.name.clone(), struct_data);
 
-        self.emit(format!("; ===== struct {} =====", data.name));
-        self.emit(format!("; size: {}", data.size));
+        self.emit_main(format!("; ===== struct {} =====", data.name));
+        self.emit_main(format!("; size: {}", data.size));
 
         for field in &data.fields {
-            self.emit(format!(
+            self.emit_main(format!(
                 "; field {} | offset: {} | type: {:?}",
                 field.name, field.offset, field.ty
             ));
         }
 
-        self.emit(format!("; ======================"));
+        self.emit_main(format!("; ======================"));
     }
 
     pub fn calc_stack_size(&self, body: &Stmt) -> usize {
@@ -448,42 +460,41 @@ impl Gen {
                     *max_depth = current;
                 }
             }
-            Stmt::Import(..) => {}
+            Stmt::GlobalDecl(global) => self.calc_stack_recursive(&*global, current, max_depth),
         }
     }
 
-    fn gen_import(&mut self, file_name: &String) {
-        let full_path = self.base_dir.join(file_name);
-        let file = File::open(full_path);
-        match file {
-            Ok(mut file) => {
-                if self.imported_files.contains(file_name) {
-                    return;
+    fn type_to_data_directive(&self, ty: &Type) -> &str {
+        match self.type_size(ty) {
+            8 => "dq",
+            4 => "dd",
+            2 => "dw",
+            1 => "db",
+            _ => "dq", // default to 8 for unknown/structs/arrays
+        }
+    }
+
+    fn gen_global(&mut self, global: Box<Stmt>) {
+        match *global {
+            Stmt::Declaration(decl_data) => {
+                if let Some(_) = decl_data.initializer {
+                    self::panic!("global cant have expr");
                 }
-                let mut content = String::new();
-                file.read_to_string(&mut content).unwrap();
-                let mut tokenizer = Tokenizer::new(content);
-                tokenizer.tokenize();
-
-                let mut parser = Parser::Parser::new(tokenizer.m_res);
-                let res = parser.parse();
-
-                self.imported_files.insert(file_name.clone());
-
-                self.reg_inits(&res);
-
-                for i in &res {
-                    self.gen_stmt(i);
-                }
+                self.emit_data(format!(
+                    "{} {} 0",
+                    decl_data.name,
+                    self.type_to_data_directive(&decl_data.ty)
+                ));
+                self.gen_declaration(&decl_data, true);
             }
-            Err(_) => {}
+            _ => self::panic!("trying to make global of strange stmt"),
         }
     }
 
     pub fn gen_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Block(v) => self.gen_block(v),
-            Stmt::Declaration(v) => self.gen_declaration(v),
+            Stmt::Declaration(v) => self.gen_declaration(v, false),
             Stmt::Assignment { target, value } => self.gen_assignment(target, value),
             Stmt::ExprStmt(expr) => {
                 self.eval_expr(expr, None, &Type::Primitive(TokenType::LongType));
@@ -515,7 +526,7 @@ impl Gen {
                 data,
             } => self.gen_func((name, args, ret_type, data)),
             Stmt::InitStruct(struct_data) => {} // skiping because we already added it in first iteration,
-            Stmt::Import(file_name) => self.gen_import(file_name),
+            Stmt::GlobalDecl(global) => self.gen_global(global.clone()),
         }
     }
 }

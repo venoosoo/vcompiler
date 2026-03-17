@@ -63,7 +63,7 @@ pub enum Stmt {
         data: Box<Stmt>,
     },
     InitStruct(StructDef),
-    Import(String),
+    GlobalDecl(Box<Stmt>),
 }
 
 /// Function argument

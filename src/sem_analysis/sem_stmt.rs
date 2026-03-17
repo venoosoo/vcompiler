@@ -25,6 +25,7 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn check_types(&self, left: &Type, right: &Type) -> bool {
+        // TODO: redo ai slop
         if left == right {
             return true;
         }
@@ -37,6 +38,27 @@ impl<'a> Analyzer<'a> {
         if is_ptr_long_pair(left, right) || is_ptr_long_pair(right, left) {
             return true;
         }
+        let is_void_ptr =
+            |t: &Type| *t == Type::Pointer(Box::new(Type::Primitive(TokenType::Void)));
+        if is_void_ptr(left)
+            && matches!(
+                right,
+                Type::Pointer(_) | Type::Primitive(TokenType::LongType)
+            )
+        {
+            return true;
+        }
+        if is_void_ptr(right)
+            && matches!(
+                left,
+                Type::Pointer(_) | Type::Primitive(TokenType::LongType)
+            )
+        {
+            return true;
+        }
+        if *right == Type::Primitive(TokenType::Void) {
+            return true;
+        }
         false
     }
 
@@ -47,7 +69,7 @@ impl<'a> Analyzer<'a> {
         }
 
         if let Some(expr) = &data.initializer {
-            let expr_ty = self.check_expr(expr);
+            let expr_ty = self.check_expr(expr, &data.ty);
             if !self.check_types(&data.ty, &expr_ty) {
                 self.errors.push(SemanticError::TypeMismatch {
                     expected: data.ty.clone(),
@@ -68,20 +90,55 @@ impl<'a> Analyzer<'a> {
         self.add_var(data.name.clone(), data.ty.clone());
     }
 
+    pub fn lvalue_type(&mut self, lvalue: &LValue) -> Type {
+        match lvalue {
+            LValue::Variable(name) => self.lookup(name).unwrap_or(Type::Unknown),
+            LValue::Deref(inner) => {
+                let inner_ty = self.lvalue_type(inner);
+                match inner_ty {
+                    Type::Pointer(ty) => *ty,
+                    _ => Type::Unknown,
+                }
+            }
+            LValue::Field { base, name } => {
+                let base_ty = self.lvalue_type(base);
+                match base_ty {
+                    Type::Struct(struct_name) => self
+                        .structs
+                        .get(&struct_name)
+                        .and_then(|s| s.elements.get(name))
+                        .map(|f| f.ty.clone())
+                        .unwrap_or(Type::Unknown),
+                    _ => Type::Unknown,
+                }
+            }
+            LValue::Index { base, .. } => {
+                let base_ty = self.lvalue_type(base);
+                match base_ty {
+                    Type::Array(elem_ty, _) => *elem_ty,
+                    Type::Pointer(elem_ty) => *elem_ty,
+                    _ => Type::Unknown,
+                }
+            }
+        }
+    }
+
     pub fn check_assignment(&mut self, target: &LValue, value: &Expr) {
-        let expr_ty = self.check_expr(value);
         let var_name = lvalue_root(target);
-        let var_data = self.lookup(&var_name);
-        if var_data.is_none() {
+        if self.lookup(&var_name).is_none() {
             self.errors
                 .push(SemanticError::UndeclaredVariable(var_name));
-        } else if let Some(var_type) = &var_data {
-            if !self.check_types(var_type, &expr_ty) {
-                self.errors.push(SemanticError::TypeMismatch {
-                    expected: var_type.clone(),
-                    got: expr_ty,
-                });
-            }
+            return;
+        }
+
+        // use lvalue_type for actual type check
+        let target_ty = self.lvalue_type(target);
+        let expr_ty = self.check_expr(value, &target_ty);
+        if !self.check_types(&target_ty, &expr_ty) {
+            self.errors.push(SemanticError::TypeMismatch {
+                expected: target_ty,
+                got: expr_ty,
+            });
         }
     }
 
@@ -91,7 +148,7 @@ impl<'a> Analyzer<'a> {
         if_block: &Box<Stmt>,
         else_block: &Option<Box<Stmt>>,
     ) {
-        let _expr_ty = self.check_expr(condition);
+        let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::LongType));
         self.check_stmt(if_block);
         if let Some(else_data) = &else_block {
             self.check_stmt(else_data);
@@ -99,7 +156,7 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn check_while(&mut self, condition: &Expr, body: &Box<Stmt>) {
-        let _expr_ty = self.check_expr(condition);
+        let _expr_ty = self.check_expr(condition, &Type::Primitive(TokenType::LongType));
         self.check_stmt(body);
     }
 
@@ -117,7 +174,7 @@ impl<'a> Analyzer<'a> {
             self.check_stmt(init_data);
         }
         if let Some(condition_data) = condition {
-            self.check_expr(condition_data);
+            self.check_expr(condition_data, &Type::Primitive(TokenType::LongType));
         }
         if let Some(update_data) = update {
             self.check_stmt(update_data);
@@ -128,7 +185,7 @@ impl<'a> Analyzer<'a> {
     pub fn check_ret(&mut self, expr: &Option<Expr>) {
         let mut expr_ty = Type::Primitive(TokenType::Void);
         if let Some(expr) = expr {
-            expr_ty = self.check_expr(expr);
+            expr_ty = self.check_expr(expr, &self.current_ret_type.clone());
         }
         if !self.check_types(&self.current_ret_type, &expr_ty) {
             self.errors.push(SemanticError::ReturnTypeMismatch {
@@ -187,25 +244,13 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn check_import(&mut self, file_name: &String) {
-        let mut base_dir = env::current_dir().unwrap();
-        base_dir.push(file_name);
-        let file = File::open(base_dir);
-        match file {
-            Ok(_) => {}
-            Err(_) => self
-                .errors
-                .push(SemanticError::FileDoesntExist(file_name.clone())),
-        }
-    }
-
     pub fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Block(data) => self.check_block(data),
             Stmt::Declaration(data) => self.check_declaration(data),
             Stmt::Assignment { target, value } => self.check_assignment(target, value),
             Stmt::ExprStmt(expr) => {
-                self.check_expr(expr);
+                self.check_expr(expr, &Type::Primitive(TokenType::LongType));
             }
             Stmt::If {
                 condition,
@@ -234,7 +279,7 @@ impl<'a> Analyzer<'a> {
                 self.check_init_func((name, args, ret_type, data));
             }
             Stmt::InitStruct(struct_data) => self.check_struct_init(struct_data),
-            Stmt::Import(file_name) => self.check_import(file_name),
+            Stmt::GlobalDecl(global) => self.check_stmt(&*global),
         }
     }
 }

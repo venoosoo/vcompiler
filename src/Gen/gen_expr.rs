@@ -136,25 +136,25 @@ impl Gen {
     ) {
         match op {
             BinOp::Add => {
-                self.emit(format!("    add {}, {}", left_reg, right_reg));
+                self.emit_main(format!("    add {}, {}", left_reg, right_reg));
             }
             BinOp::Sub => {
-                self.emit(format!("    sub {}, {}", left_reg, right_reg));
+                self.emit_main(format!("    sub {}, {}", left_reg, right_reg));
             }
             BinOp::Mul => {
-                self.emit(format!("    imul {}, {}", left_reg, right_reg));
+                self.emit_main(format!("    imul {}, {}", left_reg, right_reg));
             }
             BinOp::Div | BinOp::Mod => {
                 if self.type_size(expected_type) == 8 {
-                    self.emit("    cqo".to_string()); // 64-bit
+                    self.emit_main("    cqo".to_string()); // 64-bit
                 } else {
-                    self.emit("    cdq".to_string()); // 32-bit
+                    self.emit_main("    cdq".to_string()); // 32-bit
                 }
 
-                self.emit(format!("    idiv {}", right_reg));
+                self.emit_main(format!("    idiv {}", right_reg));
 
                 if let BinOp::Mod = op {
-                    self.emit(format!(
+                    self.emit_main(format!(
                         "    mov {}, {}",
                         left_reg,
                         reg_for_size("rdx", expected_type).unwrap()
@@ -162,7 +162,7 @@ impl Gen {
                 }
             }
             BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                self.emit(format!("    cmp {}, {}", left_reg, right_reg));
+                self.emit_main(format!("    cmp {}, {}", left_reg, right_reg));
                 let set_instr = match op {
                     BinOp::Eq => "sete",
                     BinOp::Neq => "setne",
@@ -172,24 +172,24 @@ impl Gen {
                     BinOp::Gte => "setge",
                     _ => unreachable!(),
                 };
-                self.emit(format!("    {} al", set_instr));
-                self.emit(format!("    movzx {}, al", left_reg));
+                self.emit_main(format!("    {} al", set_instr));
+                self.emit_main(format!("    movzx {}, al", left_reg));
             }
             BinOp::And => {
-                self.emit(format!("    cmp {}, 0", left_reg));
-                self.emit(format!("    setne al")); // al = left != 0
-                self.emit(format!("    cmp {}, 0", right_reg));
-                self.emit(format!("    setne dl")); // dl = right != 0
-                self.emit(format!("    and al, dl")); // al = left && right
-                self.emit(format!("    movzx {}, al", left_reg));
+                self.emit_main(format!("    cmp {}, 0", left_reg));
+                self.emit_main(format!("    setne al")); // al = left != 0
+                self.emit_main(format!("    cmp {}, 0", right_reg));
+                self.emit_main(format!("    setne dl")); // dl = right != 0
+                self.emit_main(format!("    and al, dl")); // al = left && right
+                self.emit_main(format!("    movzx {}, al", left_reg));
             }
             BinOp::Or => {
-                self.emit(format!("    cmp {}, 0", left_reg));
-                self.emit(format!("    setne al")); // al = left != 0
-                self.emit(format!("    cmp {}, 0", right_reg));
-                self.emit(format!("    setne dl")); // dl = right != 0
-                self.emit(format!("    or al, dl")); // al = left || right
-                self.emit(format!("    movzx {}, al", left_reg));
+                self.emit_main(format!("    cmp {}, 0", left_reg));
+                self.emit_main(format!("    setne al")); // al = left != 0
+                self.emit_main(format!("    cmp {}, 0", right_reg));
+                self.emit_main(format!("    setne dl")); // dl = right != 0
+                self.emit_main(format!("    or al, dl")); // al = left || right
+                self.emit_main(format!("    movzx {}, al", left_reg));
             }
         }
     }
@@ -202,7 +202,7 @@ impl Gen {
     ) -> String {
         let reg = reg_helper.insert_reg(expected_type);
         if let Some(asm_reg) = reg {
-            self.emit(format!("    mov {}, {}", asm_reg, num));
+            self.emit_main(format!("    mov {}, {}", asm_reg, num));
             asm_reg
         } else {
             return num.to_string();
@@ -222,26 +222,41 @@ impl Gen {
                 Type::Primitive(_) => {
                     let actual_size = self.type_size(&var_data.var_type);
                     let expected_size = self.type_size(expected_type);
+                    if var_data.global_flag {
+                        let var_reg = format!("[rel {}]",var_name);
+                        self.emit_main(format!("    mov {}, {}",reg,var_reg));
+                        return reg;
+                        
+                    }
+                    
                     if expected_size > actual_size {
                         // sign-extend smaller type into larger register
                         let src_word = get_word(&var_data.var_type);
-                        self.emit(format!(
+                        self.emit_main(format!(
                             "    movsx {}, {} [rbp - {}]",
                             reg, src_word, var_data.stack_pos
                         ));
                     } else {
                         let size_word = get_word(expected_type);
-                        self.emit(format!(
+                        self.emit_main(format!(
                             "    mov {}, {} [rbp - {}]",
                             reg, size_word, var_data.stack_pos
                         ));
                     }
                 }
                 Type::Pointer(_) => {
-                    self.emit(format!("    mov {}, [rbp - {}]", reg, var_data.stack_pos));
+                    if var_data.global_flag {
+                        self.emit(format!("    mov {}, [rel {}]",reg,var_name));
+                    } else {
+                        self.emit_main(format!("    mov {}, [rbp - {}]", reg, var_data.stack_pos));
+                    }
                 }
                 _ => {
-                    self.emit(format!("    lea {}, [rbp - {}]", reg, var_data.stack_pos));
+                    if var_data.global_flag {
+                        self.emit_main(format!("    lea {}, [rel {}]", reg, var_name));
+                    } else {
+                        self.emit_main(format!("    lea {}, [rbp - {}]", reg, var_data.stack_pos));
+                    }
                 }
             }
             reg
@@ -278,14 +293,14 @@ impl Gen {
         match op {
             UnaryOp::Neg => {
                 let reg = self.eval_expr(expr, Some(reg_helper), expected_type);
-                self.emit(format!("    neg {}", reg));
+                self.emit_main(format!("    neg {}", reg));
                 reg
             }
             UnaryOp::Not => {
                 let reg = self.eval_expr(expr, Some(reg_helper), expected_type);
-                self.emit(format!("    cmp {}, 0", reg));
-                self.emit("    sete al".to_string());
-                self.emit(format!("    movzx {}, al", reg));
+                self.emit_main(format!("    cmp {}, 0", reg));
+                self.emit_main("    sete al".to_string());
+                self.emit_main(format!("    movzx {}, al", reg));
 
                 reg
             }
@@ -306,16 +321,16 @@ impl Gen {
 
             let reg = self.eval_expr(arg, Some(reg_helper), &arg_type);
             let arg_reg = arg_pos(index, &arg_type);
-            self.emit(format!("    mov {}, {}", arg_reg, reg));
+            self.emit_main(format!("    mov {}, {}", arg_reg, reg));
             reg_helper.get_reg();
         }
 
-        self.emit(format!("    call {}", name));
+        self.emit_main(format!("    call {}", name));
         let reg_asm = reg_helper.insert_reg(expected_type);
         if let Some(reg) = reg_asm {
             let sized_rax = reg_for_size("rax", expected_type).unwrap();
 
-            self.emit(format!("    mov {}, {}", reg, sized_rax));
+            self.emit_main(format!("    mov {}, {}", reg, sized_rax));
 
             reg
         } else {
@@ -348,7 +363,7 @@ impl Gen {
 
             let field_pos = base_pos - field.offset;
 
-            self.emit(format!(
+            self.emit_main(format!(
                 "    mov {} [rbp - {}], {}",
                 size_word, field_pos, sized_reg
             ));
@@ -378,13 +393,13 @@ impl Gen {
         };
         let struct_data = self.structs.get(&struct_name).unwrap();
         let field = struct_data.elements.get(name).unwrap();
-        self.emit(format!("    add {}, {}", base_reg, field.offset));
+        self.emit_main(format!("    add {}, {}", base_reg, field.offset));
 
         let result_reg = reg_helper.insert_reg(expected_type);
         if let Some(result_reg) = result_reg {
             let size_word = get_word(expected_type);
 
-            self.emit(format!(
+            self.emit_main(format!(
                 "    mov {}, {} [{}]",
                 result_reg, size_word, base_reg
             ));
@@ -408,7 +423,7 @@ impl Gen {
         let asm_reg = reg_helper.insert_reg(expected_type);
         if let Some(reg) = asm_reg {
             let size_word = get_word(expected_type);
-            self.emit(format!("    mov {}, {} [{}]", reg, size_word, ptr_reg));
+            self.emit_main(format!("    mov {}, {} [{}]", reg, size_word, ptr_reg));
             reg
         } else {
             self::panic!("wtf");
@@ -422,7 +437,7 @@ impl Gen {
                 let var = self.lookup_var(name);
                 let asm_reg = reg_helper.insert_reg(&ptr_type);
                 if let Some(reg) = asm_reg {
-                    self.emit(format!("    lea {}, [rbp - {}]", reg, var.stack_pos));
+                    self.emit_main(format!("    lea {}, [rbp - {}]", reg, var.stack_pos));
 
                     reg
                 } else {
@@ -442,7 +457,7 @@ impl Gen {
                 let struct_data = self.structs.get(&struct_name).unwrap();
                 let field = struct_data.elements.get(name).unwrap();
 
-                self.emit(format!("    sub {}, {}", base_reg, field.offset));
+                self.emit_main(format!("    sub {}, {}", base_reg, field.offset));
 
                 base_reg
             }
@@ -459,11 +474,11 @@ impl Gen {
 
                 let elem_size = self.type_size(&elem_type);
 
-                self.emit(format!(
+                self.emit_main(format!(
                     "    imul {}, {}, {}",
                     index_reg, index_reg, elem_size
                 ));
-                self.emit(format!("    add {}, {}", base_reg, index_reg));
+                self.emit_main(format!("    add {}, {}", base_reg, index_reg));
 
                 base_reg
             }
@@ -493,26 +508,26 @@ impl Gen {
         );
         match arr_ty {
             Type::Array(ty, size) => {
-                self.emit(format!("    cmp {}, {}", index_reg, size));
-                self.emit(format!("    jge __bounds_fail__"));
-                self.emit(format!("    cmp {}, 0", index_reg));
-                self.emit(format!("    jl __bounds_fail__"));
+                self.emit_main(format!("    cmp {}, {}", index_reg, size));
+                self.emit_main(format!("    jge __bounds_fail__"));
+                self.emit_main(format!("    cmp {}, 0", index_reg));
+                self.emit_main(format!("    jl __bounds_fail__"));
             }
             _ => {}
         }
         let elem_size = self.type_size(expected_type);
 
-        self.emit(format!(
+        self.emit_main(format!(
             "    imul {}, {}, {}",
             index_reg, index_reg, elem_size
         ));
-        self.emit(format!("    add {}, {}", base_reg, index_reg));
+        self.emit_main(format!("    add {}, {}", base_reg, index_reg));
         reg_helper.get_reg();
         let reg = reg_helper.insert_reg(expected_type);
         if let Some(result_reg) = reg {
             let size_word = get_word(expected_type);
 
-            self.emit(format!(
+            self.emit_main(format!(
                 "    mov {}, {} [{}]",
                 result_reg, size_word, base_reg
             ));
@@ -541,7 +556,7 @@ impl Gen {
             let size_word = get_word(&elem_type);
             let offset = base_pos - (i * elem_size);
 
-            self.emit(format!(
+            self.emit_main(format!(
                 "    mov {} [rbp - {}], {}",
                 size_word, offset, sized_reg
             ));
@@ -549,7 +564,7 @@ impl Gen {
         }
         let reg = reg_helper.insert_reg(&Type::Pointer(Box::new(elem_type.clone())));
         if let Some(result_reg) = reg {
-            self.emit(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
+            self.emit_main(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
 
             result_reg
         } else {

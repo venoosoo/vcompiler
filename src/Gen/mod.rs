@@ -18,14 +18,14 @@ mod gen_stmt;
 
 pub struct Gen {
     stmts: Vec<Stmt>,
-    m_out: String,
     stack_pos: usize,
+    out: String,
     current_return_type: Type,
+    main_code: Vec<String>,
+    data_code: Vec<String>,
     scopes: Vec<HashMap<String, VarData>>,
     structs: HashMap<String, StructData>,
     functions: HashMap<String, FuncData>,
-    imported_files: HashSet<String>,
-    base_dir: PathBuf,
     id: usize,
 }
 
@@ -156,23 +156,37 @@ pub fn lvalue_root(lvalue: &LValue) -> String {
 }
 
 impl Gen {
-    pub fn new(stmts: Vec<Stmt>, base_dir: PathBuf) -> Gen {
+    pub fn new(stmts: Vec<Stmt>) -> Gen {
         Gen {
             stmts,
             current_return_type: Type::Primitive(TokenType::IntType),
-            m_out: String::new(),
+            main_code: Vec::new(),
+            data_code: Vec::new(),
             scopes: vec![HashMap::new()],
             stack_pos: 0,
             structs: HashMap::new(),
             functions: HashMap::new(),
-            base_dir,
-            imported_files: HashSet::new(),
+            out: String::new(),
             id: 0,
         }
     }
 
     fn emit(&mut self, s: String) {
-        let _ = writeln!(self.m_out, "{}", s);
+        let _ = writeln!(self.out, "{}", s);
+    }
+
+    fn emit_main(&mut self, s: String) {
+        self.main_code.push(s);
+    }
+
+    fn emit_data(&mut self, s: String) {
+        self.data_code.push(s);
+    }
+
+    fn emit_all(&mut self, s: Vec<String>) {
+        for line in s {
+            let _ = writeln!(self.out, "{}", line);
+        }
     }
 
     fn get_id(&mut self) -> usize {
@@ -187,22 +201,6 @@ impl Gen {
             TokenType::ShortType => 2,
             TokenType::LongType => 8,
             _ => panic!("trying to get size of unexpected type: {:?}", token),
-        }
-    }
-
-    pub fn expr_to_lvalue(&self, expr: &Expr) -> LValue {
-        match expr {
-            Expr::Variable(name) => LValue::Variable(name.clone()),
-            Expr::StructMember { base, name } => LValue::Field {
-                base: Box::new(self.expr_to_lvalue(base)),
-                name: name.clone(),
-            },
-            Expr::Index { base, index } => LValue::Index {
-                base: Box::new(self.expr_to_lvalue(base)),
-                index: Box::new(*index.clone()), // or Box::new(index.clone())
-            },
-            Expr::Deref(inner) => LValue::Deref(Box::new(self.expr_to_lvalue(inner))),
-            _ => panic!("Cannot convert expr to lvalue: {:?}", expr),
         }
     }
 
@@ -231,12 +229,10 @@ impl Gen {
         self.stack_pos
     }
 
-    fn alloc(&mut self, size: usize) -> usize {
-        self.stack_pos += size;
-        self.stack_pos
-    }
-
     pub fn gen_asm(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+        self.gen_stmts();
+        self.emit("section .data".to_string());
+        self.emit_all(self.data_code.clone());
         self.emit("section .text".to_string());
         self.emit("global _start".to_string());
         self.emit("_start:".to_string());
@@ -246,12 +242,12 @@ impl Gen {
         self.emit("    mov rax, 60".to_string());
         self.emit("    xor rdi, rdi".to_string());
         self.emit("    syscall".to_string());
-        self.gen_stmts();
+        self.emit_all(self.main_code.clone());
         self.emit("__bounds_fail__:".to_string());
         self.emit("    mov rax, 60".to_string());
         self.emit("    mov rdi, 1".to_string());
         self.emit("    syscall".to_string());
-        Ok(self.m_out.clone())
+        Ok(self.out.clone())
     }
 
     pub fn lookup_var(&self, name: &str) -> &VarData {
@@ -303,26 +299,6 @@ impl Gen {
 }
 
 impl Stmt {
-    pub fn get_type(&self, helper: &mut Analyzer) -> Option<(Type)> {
-        match self {
-            Stmt::Declaration(data) => {
-                return Some(data.ty.clone());
-            }
-            Stmt::Assignment { target, value } => {
-                let var = lvalue_root(target);
-                if let Some(var) = helper.lookup(&var) {
-                    return Some(var);
-                } else {
-                    helper.errors.push(SemanticError::UndeclaredVariable(var));
-                    return None;
-                }
-            }
-            Stmt::ExprStmt(expr) => {
-                return Some(helper.check_expr(expr));
-            }
-            _ => None,
-        }
-    }
     pub fn get_type_gen(&self, helper: &Gen) -> Option<Type> {
         match self {
             Stmt::Declaration(data) => {

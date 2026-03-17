@@ -1,6 +1,6 @@
 use super::*;
 
-impl Parser {
+impl<'a> Parser<'a> {
     pub fn parse_args(&mut self) -> Vec<Stmt> {
         let mut res: Vec<Stmt> = Vec::new();
         self.consume(); // ( 

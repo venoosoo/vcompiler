@@ -2,7 +2,7 @@ use super::*;
 
 use crate::Ir::expr::*;
 
-impl Parser {
+impl<'a> Parser<'a> {
     fn parse_struct_expr(&mut self, struct_name: &String) -> Expr {
         let mut fields = Vec::new();
 

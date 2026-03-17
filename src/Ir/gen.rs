@@ -1,17 +1,15 @@
 use std::collections::HashMap;
 
-use crate::{
-    Ir::{
-        Stmt,
-        stmt::{Arg, StructField, Type},
-    },
-    Tokenizer::TokenType,
+use crate::Ir::{
+    Stmt,
+    stmt::{StructField, Type},
 };
 
 #[derive(Debug)]
 pub struct VarData {
     pub stack_pos: usize,
     pub var_type: Type,
+    pub global_flag: bool,
 }
 
 #[derive(Debug, Clone)]

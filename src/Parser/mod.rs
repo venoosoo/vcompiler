@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crate::Ir::expr::{BinOp, Expr, UnaryOp};
@@ -10,12 +11,14 @@ pub mod expr;
 pub mod function;
 pub mod stmt;
 
-pub struct Parser {
+pub struct Parser<'a> {
     m_tokens: Vec<Token>,
     m_index: usize,
     expressions: Vec<Stmt>,
     struct_table: HashMap<String, StructDef>,
     types: HashSet<String>,
+    base_dir: PathBuf,
+    imported_files: &'a mut HashSet<String>,
 }
 
 pub struct Program(Vec<Stmt>);
@@ -29,14 +32,20 @@ impl std::fmt::Display for Program {
     }
 }
 
-impl Parser {
-    pub fn new(m_tokens: Vec<Token>) -> Self {
+impl<'a> Parser<'a> {
+    pub fn new(
+        m_tokens: Vec<Token>,
+        base_dir: PathBuf,
+        imported_files: &'a mut HashSet<String>,
+    ) -> Self {
         Parser {
             m_tokens,
             m_index: 0,
             struct_table: HashMap::new(),
             expressions: Vec::new(),
             types: HashSet::new(),
+            base_dir,
+            imported_files,
         }
     }
 

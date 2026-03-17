@@ -32,7 +32,9 @@ fn is_numeric(ty: &Type) -> bool {
 fn is_arithmetic(ty: &Type) -> bool {
     matches!(
         ty,
-        Type::Primitive(TokenType::IntType) | Type::Primitive(TokenType::LongType) //Type::Primitive(TokenType::Float)
+        Type::Primitive(TokenType::CharType)
+            | Type::Primitive(TokenType::IntType)
+            | Type::Primitive(TokenType::LongType) //Type::Primitive(TokenType::Float)
     )
 }
 
