@@ -134,7 +134,7 @@ struct Point {
     int x;
     int y;
 }
-Point p = { x: 1, y: 2 };
+Point p = Point { x: 1, y: 2 };
 
 // Control flow
 if x > 10 {
