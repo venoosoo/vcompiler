@@ -83,7 +83,6 @@ impl Parser {
         let token = self.consume();
 
         let mut ty = if token.token == TokenType::Var {
-            println!("value: {:?}", token);
             let name = self.types.get(&token.value.unwrap()).unwrap();
             Type::Struct(name.to_string())
         } else {

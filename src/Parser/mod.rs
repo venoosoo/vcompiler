@@ -93,6 +93,8 @@ impl Parser {
         match ty {
             Type::Primitive(TokenType::IntType) => 4,
             Type::Primitive(TokenType::CharType) => 1,
+            Type::Primitive(TokenType::ShortType) => 2,
+            Type::Primitive(TokenType::LongType) => 8,
 
             Type::Pointer(_) => 8, // assume 64-bit
 

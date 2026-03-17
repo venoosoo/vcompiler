@@ -219,7 +219,6 @@ impl Gen {
                     .structs
                     .get(struct_name)
                     .expect(&format!("no struct with name {}", struct_name));
-                println!("struct: {:?}", struct_data);
                 struct_data.element_size
             }
             Type::Unknown => panic!("unkown type"),
@@ -320,6 +319,25 @@ impl Stmt {
             }
             Stmt::ExprStmt(expr) => {
                 return Some(helper.check_expr(expr));
+            }
+            _ => None,
+        }
+    }
+    pub fn get_type_gen(&self, helper: &Gen) -> Option<Type> {
+        match self {
+            Stmt::Declaration(data) => {
+                return Some(data.ty.clone());
+            }
+            Stmt::Assignment { target, value } => {
+                let var = lvalue_root(target);
+                if let var = helper.lookup_var(&var) {
+                    return Some(var.var_type.clone());
+                } else {
+                    return None;
+                }
+            }
+            Stmt::ExprStmt(expr) => {
+                todo!();
             }
             _ => None,
         }

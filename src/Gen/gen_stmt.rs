@@ -27,7 +27,12 @@ impl Gen {
 
         if let Some(expr_data) = &data.initializer {
             let reg = self.eval_expr(expr_data, None, &data.ty);
-            self.emit(format!("    mov [rbp - {}], {}", stack_pos, reg));
+            match data.ty {
+                Type::Primitive(_) | Type::Pointer(_) => {
+                    self.emit(format!("    mov [rbp - {}], {}", stack_pos, reg));
+                }
+                _ => {}
+            }
         }
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
@@ -291,7 +296,15 @@ impl Gen {
     pub fn gen_func(&mut self, data: (&String, &Vec<Stmt>, &Type, &Box<Stmt>)) {
         let (name, args, ret_type, data) = data;
         self.current_return_type = ret_type.clone();
-        let func_stack_frame = self.calc_stack_size(&data);
+        let body_size = self.calc_stack_size(&data);
+        let arg_size = {
+            let mut res = 0;
+            for arg in args {
+                res += self.calc_stack_size(arg);
+            }
+            res
+        };
+        let func_stack_frame = align16(body_size + arg_size);
         self.emit(format!("{}:", name));
         self.emit(format!("    push rbp"));
         self.emit(format!("    mov rbp, rsp"));

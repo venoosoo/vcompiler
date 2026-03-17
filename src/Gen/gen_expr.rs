@@ -14,7 +14,7 @@ impl Expr {
     /// Returns the Type of this expression
     pub fn get_type_of_expr(&self, gen_helper: &Gen) -> Type {
         match self {
-            Expr::Number(_) => Type::Primitive(TokenType::IntType),
+            Expr::Number(_) => Type::Primitive(TokenType::LongType),
             Expr::Float(_) => self::panic!("floats are not implemented"),
             Expr::Variable(name) => {
                 let var = gen_helper.lookup_var(name);
@@ -53,7 +53,7 @@ impl Expr {
             Expr::Index { base, index } => {
                 let base_ty = base.get_type_of_expr(gen_helper);
                 let idx_ty = index.get_type_of_expr(gen_helper);
-                if idx_ty != Type::Primitive(TokenType::IntType) {
+                if idx_ty != Type::Primitive(TokenType::LongType) {
                     self::panic!("Array index must be integer");
                 }
                 match base_ty {
@@ -100,21 +100,20 @@ impl Expr {
 impl RegisterHelper {
     pub fn insert_reg(&mut self, ty: &Type) -> Option<String> {
         if self.reg_stack.len() == 0 {
-            let reg_res:Option<String>  = reg_for_size("rax", ty);
+            let reg_res: Option<String> = reg_for_size("rax", ty);
             if let Some(reg) = reg_res {
                 self.reg_stack.push(reg.clone());
                 return Some(reg);
             } else {
                 return None;
             }
-
         } else if self.reg_stack.len() == 1 {
             let reg_res = reg_for_size("rbx", ty);
             if let Some(reg) = reg_res {
                 self.reg_stack.push(reg.clone());
                 return Some(reg);
             } else {
-                return  None;
+                return None;
             }
         } else {
             None
@@ -146,7 +145,12 @@ impl Gen {
                 self.emit(format!("    imul {}, {}", left_reg, right_reg));
             }
             BinOp::Div | BinOp::Mod => {
-                self.emit("    cdq".to_string());
+                if self.type_size(expected_type) == 8 {
+                    self.emit("    cqo".to_string()); // 64-bit
+                } else {
+                    self.emit("    cdq".to_string()); // 32-bit
+                }
+
                 self.emit(format!("    idiv {}", right_reg));
 
                 if let BinOp::Mod = op {
@@ -233,6 +237,9 @@ impl Gen {
                         ));
                     }
                 }
+                Type::Pointer(_) => {
+                    self.emit(format!("    mov {}, [rbp - {}]", reg, var_data.stack_pos));
+                }
                 _ => {
                     self.emit(format!("    lea {}, [rbp - {}]", reg, var_data.stack_pos));
                 }
@@ -292,8 +299,11 @@ impl Gen {
         args: &Vec<Expr>,
         expected_type: &Type,
     ) -> String {
+        let func_data = self.functions.get(name).unwrap().clone();
         for (index, arg) in args.iter().enumerate() {
-            let arg_type = arg.get_type_of_expr(self);
+            let func_stmt = &func_data.args[index];
+            let arg_type = func_stmt.get_type_gen(self).unwrap();
+
             let reg = self.eval_expr(arg, Some(reg_helper), &arg_type);
             let arg_reg = arg_pos(index, &arg_type);
             self.emit(format!("    mov {}, {}", arg_reg, reg));
@@ -332,7 +342,7 @@ impl Gen {
             let field = struct_data.elements.get(field_name).expect("Unknown field");
 
             let field_type = &field.ty;
-
+            self.eval_expr(field_expr, None, expected_type);
             let sized_reg = reg_for_size("rax", field_type).unwrap();
             let size_word = get_word(field_type);
 
@@ -347,10 +357,10 @@ impl Gen {
         let result_reg =
             reg_helper.insert_reg(&Type::Pointer(Box::new(Type::Struct(struct_name.clone()))));
         if let Some(result_reg) = result_reg {
-            self.emit(format!("    lea {}, [rbp - {}]", result_reg, base_pos));
             result_reg
         } else {
-            self::panic!("wtf");
+            println!("wtf");
+            "rax".to_string()
         }
     }
 
@@ -361,14 +371,14 @@ impl Gen {
         name: &String,
         expected_type: &Type,
     ) -> String {
-        let base_reg = self.eval_expr(base, Some(reg_helper), &base.get_type_of_expr(self));
+        let base_reg = self.eval_expr(base, None, &base.get_type_of_expr(self));
         let struct_name = match base.get_type_of_expr(self) {
             Type::Struct(name) => name,
             _ => self::panic!("member access on non-struct"),
         };
         let struct_data = self.structs.get(&struct_name).unwrap();
         let field = struct_data.elements.get(name).unwrap();
-        self.emit(format!("    sub {}, {}", base_reg, field.offset));
+        self.emit(format!("    add {}, {}", base_reg, field.offset));
 
         let result_reg = reg_helper.insert_reg(expected_type);
         if let Some(result_reg) = result_reg {
@@ -444,7 +454,7 @@ impl Gen {
                 let index_reg = self.eval_expr(
                     index,
                     Some(reg_helper),
-                    &Type::Primitive(TokenType::IntType),
+                    &Type::Primitive(TokenType::LongType),
                 );
 
                 let elem_size = self.type_size(&elem_type);
