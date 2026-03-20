@@ -76,6 +76,12 @@ impl<'a> Analyzer<'a> {
     ) -> Result<Type, SemanticError> {
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+                if matches!(&l, Type::Pointer(_)) && is_integer(&r) {
+                    return Ok(l);
+                }
+                if matches!(&r, Type::Pointer(_)) && is_integer(&l) {
+                    return Ok(r);
+                }
                 if !is_arithmetic(&l) || !is_arithmetic(&r) {
                     return Err(SemanticError::InvalidBinary {
                         op: op.clone(),
@@ -98,7 +104,10 @@ impl<'a> Analyzer<'a> {
             }
 
             BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                if !is_numeric(&l) || !is_numeric(&r) {
+                let compatible = (is_numeric(&l) && is_numeric(&r))
+                    || is_ptr_long_pair(&l, &r)
+                    || is_ptr_long_pair(&r, &l);
+                if !compatible {
                     return Err(SemanticError::InvalidBinary {
                         op: op.clone(),
                         left: l,
@@ -109,7 +118,11 @@ impl<'a> Analyzer<'a> {
             }
 
             BinOp::Eq | BinOp::Neq => {
-                let compatible = (is_numeric(&l) && is_numeric(&r)) || l == r;
+                let compatible = (is_numeric(&l) && is_numeric(&r))
+                    || l == r
+                    || is_ptr_long_pair(&l, &r)
+                    || is_ptr_long_pair(&r, &l)
+                    || matches!((&l, &r), (Type::Pointer(_), Type::Pointer(_)));
                 if !compatible {
                     return Err(SemanticError::InvalidBinary {
                         op: op.clone(),
@@ -290,6 +303,10 @@ impl<'a> Analyzer<'a> {
         Type::Array(Box::new(first_ty.clone()), elements.len())
     }
 
+    fn check_size_of(&mut self, expr: &Stmt) -> Type {
+        Type::Primitive(TokenType::LongType)
+    }
+
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {
         match expr {
             Expr::Number(num) => self.check_num(num, expected_ty),
@@ -307,6 +324,7 @@ impl<'a> Analyzer<'a> {
             Expr::AddressOf(expr) => self.check_addres_of(expr, expected_ty),
             Expr::Index { base, index } => self.check_index(base, index, expected_ty),
             Expr::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
+            Expr::SizeOf { ty } => self.check_size_of(ty),
         }
     }
 }

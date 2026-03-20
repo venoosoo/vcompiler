@@ -49,7 +49,7 @@ impl<'a> Parser<'a> {
         match token.token {
             TokenType::Var => {
                 let token_value = token.value.unwrap();
-                if self.is_struct(&token_value) {
+                if self.is_struct(&token_value) && self.peek(0).token == TokenType::OpenScope {
                     self.parse_struct_expr(&token_value)
                 } else {
                     Expr::Variable(token_value)
@@ -89,6 +89,17 @@ impl<'a> Parser<'a> {
             TokenType::CharValue => {
                 let s: i64 = token.value.unwrap().parse().unwrap();
                 Expr::Number(s as i64)
+            }
+
+            TokenType::SizeOf => {
+                self.expect(TokenType::OpenParen);
+
+                // the stmt will be declaration with name ) and right type
+
+                let stmt = self.parse_stmt().unwrap();
+
+                self.expect(TokenType::Semi);
+                return Expr::SizeOf { ty: Box::new(stmt) };
             }
 
             _ => panic!(
@@ -150,7 +161,6 @@ impl<'a> Parser<'a> {
 
     pub fn parse_postfix_chain(&mut self) -> Expr {
         let mut expr = self.parse_primary();
-
         loop {
             match self.peek(0).token {
                 TokenType::OpenBracket => {
@@ -170,6 +180,16 @@ impl<'a> Parser<'a> {
                         name,
                     };
                 }
+
+                TokenType::Access => {
+                    self.consume();
+                    let name = self.consume().value.unwrap();
+                    return Expr::StructMember {
+                        base: Box::new(Expr::Deref(Box::new(expr))),
+                        name: name,
+                    };
+                }
+
                 TokenType::OpenParen => {
                     self.consume();
                     let mut args: Vec<Expr> = Vec::new();
@@ -201,7 +221,7 @@ impl<'a> Parser<'a> {
             TokenType::Sub => Some(BinOp::Sub),
             TokenType::Mul => Some(BinOp::Mul),
             TokenType::Div => Some(BinOp::Div),
-            TokenType::Eq => Some(BinOp::Eq),
+            TokenType::AsertEq => Some(BinOp::Eq),
             TokenType::NotEq => Some(BinOp::Neq),
             TokenType::LessThan => Some(BinOp::Lte),
             TokenType::Less => Some(BinOp::Lt),

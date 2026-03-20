@@ -33,6 +33,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tokenizer = Tokenizer::Tokenizer::new(contents);
     tokenizer.tokenize();
 
+    println!("{}", tokenizer);
+
     let file_path = Path::new(&cli.file);
     let base_dir = file_path.parent().unwrap().to_path_buf();
 
@@ -49,10 +51,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if analyzer.errors.len() > 0 {
         let error_dump = format!("{:#?}", analyzer.errors);
         fs::write("errors.txt", error_dump).expect("Failed to write errors.txt");
-        panic!("errors");
+        // panic!("errors");
     }
-
-    // to lazy to make normal debug print
 
     let mut generator = Gen::Gen::new(res);
     let asm = generator.gen_asm()?;

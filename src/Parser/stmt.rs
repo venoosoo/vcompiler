@@ -137,11 +137,18 @@ impl<'a> Parser<'a> {
     fn parse_import(&mut self) {
         self.consume(); // consume 'import' keyword
         let file_name = self.consume().value.unwrap();
-        if self.imported_files.contains(&file_name) {
+        let full_path = self
+            .base_dir
+            .join(&file_name)
+            .canonicalize()
+            .expect(&format!("Cannot find import: {}", file_name));
+
+        // check canonical path, not the raw string
+        let canonical_str = full_path.to_str().unwrap().to_string();
+        if self.imported_files.contains(&canonical_str) {
             return;
         }
-        self.imported_files.insert(file_name.clone());
-        let full_path = self.base_dir.join(&file_name);
+        self.imported_files.insert(canonical_str);
 
         let mut file = File::open(&full_path).expect(&format!("Cannot find import: {}", file_name));
 
@@ -154,6 +161,8 @@ impl<'a> Parser<'a> {
         let mut parser = Parser::new(tokenizer.m_res, self.base_dir.clone(), self.imported_files);
         parser.base_dir = full_path.parent().unwrap().to_path_buf();
         let imported_stmts = parser.parse();
+        self.types.extend(parser.types);
+        self.struct_table.extend(parser.struct_table);
 
         for stmt in imported_stmts {
             self.expressions.push(stmt);
@@ -182,7 +191,6 @@ impl<'a> Parser<'a> {
             };
 
             ty = self.parse_ptr(ty);
-
             let field_name = self.consume().value.unwrap();
 
             ty = self.parse_array(ty);
@@ -241,6 +249,13 @@ impl<'a> Parser<'a> {
                     }
                     i += 1;
                 }
+                TokenType::Access => {
+                    i += 1;
+                    if self.peek(i).token != TokenType::Var {
+                        return false;
+                    }
+                    i += 1;
+                }
 
                 TokenType::OpenBracket => {
                     i += 1;
@@ -278,10 +293,6 @@ impl<'a> Parser<'a> {
         let var_name = self.consume().value.unwrap();
         let mut lvalue = LValue::Variable(var_name);
 
-        for _ in 0..pointer_depth {
-            lvalue = LValue::Deref(Box::new(lvalue));
-        }
-
         loop {
             match self.peek(0).token {
                 TokenType::Dot => {
@@ -289,6 +300,14 @@ impl<'a> Parser<'a> {
                     let field = self.consume().value.unwrap();
                     lvalue = LValue::Field {
                         base: Box::new(lvalue),
+                        name: field,
+                    };
+                }
+                TokenType::Access => {
+                    self.consume();
+                    let field = self.consume().value.unwrap();
+                    lvalue = LValue::Field {
+                        base: Box::new(LValue::Deref(Box::new(lvalue))),
                         name: field,
                     };
                 }
@@ -308,6 +327,9 @@ impl<'a> Parser<'a> {
             }
         }
 
+        for _ in 0..pointer_depth {
+            lvalue = LValue::Deref(Box::new(lvalue));
+        }
         self.expect(TokenType::Eq);
 
         let value = self.parse_expr();

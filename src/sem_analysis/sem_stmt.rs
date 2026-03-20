@@ -63,6 +63,10 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn check_declaration(&mut self, data: &Declaration) {
+        if data.ty == Type::Primitive(TokenType::Void) {
+            self.errors.push(SemanticError::VoidVariable(data.name.clone()));
+            return;
+        }
         if self.lookup(&data.name).is_some() {
             self.errors
                 .push(SemanticError::AlreadyDeclared(data.name.clone()));
@@ -90,6 +94,23 @@ impl<'a> Analyzer<'a> {
         self.add_var(data.name.clone(), data.ty.clone());
     }
 
+    fn field_ty_match(&mut self, ty: &Type, name: &String) -> Type {
+        match ty {
+            Type::Pointer(p_ty) => {
+                let res = self.field_ty_match(p_ty, name);
+                res
+            }
+
+            Type::Struct(struct_name) => self
+                .structs
+                .get(struct_name)
+                .and_then(|s| s.elements.get(name))
+                .map(|f| f.ty.clone())
+                .unwrap_or(Type::Unknown),
+            _ => Type::Unknown,
+        }
+    }
+
     pub fn lvalue_type(&mut self, lvalue: &LValue) -> Type {
         match lvalue {
             LValue::Variable(name) => self.lookup(name).unwrap_or(Type::Unknown),
@@ -102,15 +123,7 @@ impl<'a> Analyzer<'a> {
             }
             LValue::Field { base, name } => {
                 let base_ty = self.lvalue_type(base);
-                match base_ty {
-                    Type::Struct(struct_name) => self
-                        .structs
-                        .get(&struct_name)
-                        .and_then(|s| s.elements.get(name))
-                        .map(|f| f.ty.clone())
-                        .unwrap_or(Type::Unknown),
-                    _ => Type::Unknown,
-                }
+                self.field_ty_match(&base_ty, name)
             }
             LValue::Index { base, .. } => {
                 let base_ty = self.lvalue_type(base);
@@ -195,34 +208,40 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn check_init_func(&mut self, data: (&String, &Vec<Stmt>, &Type, &Box<Stmt>)) {
-        let (name, args, ret_type, data) = data;
+    pub fn check_init_func(&mut self, data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>)) {
+        let (name, args, ret_type, body) = data;
+
         if self.functions.get(name).is_none() {
             println!("something strange inside check_init_func");
         }
-        let func_args = {
-            let mut res: Vec<ArgData> = Vec::new();
-            for i in args.iter() {
-                match i {
-                    Stmt::Declaration(v) => {
-                        res.push(ArgData {
-                            arg_name: v.name.clone(),
-                            arg_type: v.ty.clone(),
-                        });
-                        self.add_var(v.name.clone(), v.ty.clone());
-                    }
-                    _ => panic!("smth"),
+
+        // save outer scopes FIRST before adding any args
+        let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
+        
+        // push a fresh scope for function args and locals
+        self.scopes.push(HashMap::new());
+
+        let func_args: Vec<ArgData> = args
+            .iter()
+            .map(|decl| {
+                self.add_var(decl.name.clone(), decl.ty.clone()); // now goes into function scope
+                ArgData {
+                    arg_name: decl.name.clone(),
+                    arg_type: decl.ty.clone(),
                 }
-            }
-            res
-        };
-        let func_data = SemFuncData {
+            })
+            .collect();
+
+        self.functions.insert(name.clone(), SemFuncData {
             args: func_args,
             ret_type: ret_type.clone(),
-        };
-        self.functions.insert(name.clone(), func_data);
+        });
+
         self.current_ret_type = ret_type.clone();
-        self.check_stmt(data);
+        self.check_stmt(body);
+
+        // restore outer scopes
+        self.scopes = saved_scopes;
     }
 
     pub fn check_struct_init(&mut self, data: &StructDef) {
@@ -237,7 +256,7 @@ impl<'a> Analyzer<'a> {
 
             let struct_data = StructData {
                 elements,
-                element_size: data.size,
+                byte_size: data.size,
             };
 
             self.structs.insert(data.name.clone(), struct_data);
@@ -279,7 +298,13 @@ impl<'a> Analyzer<'a> {
                 self.check_init_func((name, args, ret_type, data));
             }
             Stmt::InitStruct(struct_data) => self.check_struct_init(struct_data),
-            Stmt::GlobalDecl(global) => self.check_stmt(&*global),
+            Stmt::GlobalDecl(global) => {
+                if let Stmt::Declaration(decl) = global.as_ref() {
+                    self.global_vars.insert(decl.name.clone(), decl.ty.clone());
+                } else {
+                    panic!("global decl must be a declaration");
+                }
+            }
         }
     }
 }

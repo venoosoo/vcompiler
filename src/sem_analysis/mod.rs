@@ -68,6 +68,7 @@ impl<'a> Analyzer<'a> {
             scopes: vec![HashMap::new()], // start with global scope
             functions: HashMap::new(),
             structs: HashMap::new(),
+            global_vars: HashMap::new(),
             current_ret_type: Type::Unknown,
             loop_depth: 0,
         }
@@ -84,13 +85,12 @@ impl<'a> Analyzer<'a> {
                 _ => panic!("Unsupported primitive type: {:?}", token),
             },
             Type::Pointer(_) => 8,
-            Type::Array(elem_type, count) => self.type_size(elem_type) * *count,
+            Type::Array(elem_type, count) => self.type_size(elem_type),
             Type::Struct(name) => {
                 self.structs
                     .get(name)
                     .expect(&format!("Unknown struct: {}", name))
-                    .element_size
-                    * self.structs.get(name).unwrap().elements.len()
+                    .byte_size
             }
             Type::Unknown => panic!("unkown type"),
         }
@@ -106,19 +106,17 @@ impl<'a> Analyzer<'a> {
                     data,
                 } => {
                     let params: Vec<ArgData> = {
-                        let mut res: Vec<ArgData> = Vec::new();
-                        for i in args {
-                            match i {
-                                Stmt::Declaration(v) => {
-                                    res.push(ArgData {
-                                        arg_name: v.name.clone(),
-                                        arg_type: v.ty.clone(),
-                                    });
+                        let func_args: Vec<ArgData> = args
+                            .iter()
+                            .map(|decl| {
+                                self.add_var(decl.name.clone(), decl.ty.clone());
+                                ArgData {
+                                    arg_name: decl.name.clone(),
+                                    arg_type: decl.ty.clone(),
                                 }
-                                _ => panic!("smth"),
-                            }
-                        }
-                        res
+                            })
+                            .collect();
+                        func_args
                     };
                     let func_data = SemFuncData {
                         args: params,
@@ -127,20 +125,15 @@ impl<'a> Analyzer<'a> {
                     self.functions.insert(name.clone(), func_data);
                 }
                 Stmt::InitStruct(data) => {
-                    let mut element_size = 0;
                     let fields = {
                         let mut res: HashMap<String, StructField> = HashMap::new();
                         for i in data.fields.iter() {
                             res.insert(i.name.clone(), i.clone());
-                            let el_size = self.type_size(&i.ty);
-                            if element_size < el_size {
-                                element_size = el_size;
-                            }
                         }
                         res
                     };
                     let struct_data = StructData {
-                        element_size,
+                        byte_size: data.size,
                         elements: fields,
                     };
                     self.structs.insert(data.name.clone(), struct_data);
@@ -157,6 +150,9 @@ impl<'a> Analyzer<'a> {
                     return Some(ty.clone());
                 }
             }
+        }
+        if let Some(global_data) = self.global_vars.get(expected_name) {
+            return Some(global_data.clone());
         }
         return None;
     }

@@ -1,3 +1,5 @@
+use crate::Ir::Stmt;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Number(i64),
@@ -39,6 +41,9 @@ pub enum Expr {
     },
     ArrayInit {
         elements: Vec<Expr>,
+    },
+    SizeOf {
+        ty: Box<Stmt>,
     },
 }
 

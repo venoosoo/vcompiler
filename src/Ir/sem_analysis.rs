@@ -24,6 +24,7 @@ pub struct Analyzer<'a> {
     pub stmts: &'a Vec<Stmt>,
     pub errors: Vec<SemanticError>,
     pub scopes: Vec<HashMap<String, Type>>,
+    pub global_vars: HashMap<String,Type>,
     pub functions: HashMap<String, SemFuncData>,
     pub structs: HashMap<String, StructData>,
     pub current_ret_type: Type,
@@ -39,6 +40,7 @@ pub enum SemanticError {
     UndeclaredStruct(String),
     UndeclaredField(String, String), // (struct_name, field_name)
     AlreadyDeclared(String),
+    VoidVariable(String),
     ArrayTooLarge {
         arr_name: String,
         expected: usize,

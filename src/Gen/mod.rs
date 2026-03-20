@@ -24,6 +24,7 @@ pub struct Gen {
     main_code: Vec<String>,
     data_code: Vec<String>,
     scopes: Vec<HashMap<String, VarData>>,
+    global_vars: HashMap<String, VarData>,
     structs: HashMap<String, StructData>,
     functions: HashMap<String, FuncData>,
     id: usize,
@@ -33,7 +34,20 @@ fn align16(n: usize) -> usize {
     (n + 15) & !15
 }
 
+fn to_base_reg(reg: &str) -> &str {
+    match reg {
+        "eax" | "ax" | "al" => "rax",
+        "ebx" | "bx" | "bl" => "rbx",
+        "ecx" | "cx" | "cl" => "rcx",
+        "edx" | "dx" | "dl" => "rdx",
+        "esi" | "si" | "sil" => "rsi",
+        "edi" | "di" | "dil" => "rdi",
+        _ => reg, // already 64-bit or r8-r15
+    }
+}
+
 pub fn reg_for_size(base: &str, ty: &Type) -> Option<String> {
+    let base = to_base_reg(base);
     let size = match ty {
         Type::Primitive(token) => match token {
             TokenType::CharType => 1,
@@ -167,6 +181,7 @@ impl Gen {
             structs: HashMap::new(),
             functions: HashMap::new(),
             out: String::new(),
+            global_vars: HashMap::new(),
             id: 0,
         }
     }
@@ -204,27 +219,8 @@ impl Gen {
         }
     }
 
-    fn get_size(&self, token: &Type) -> usize {
-        match token {
-            Type::Primitive(ty) => self.get_primitive_size(ty),
-            Type::Pointer(_) => 8,
-            Type::Array(arr_type, size) => {
-                let type_size = self.get_size(&*arr_type);
-                size * type_size
-            }
-            Type::Struct(struct_name) => {
-                let struct_data = self
-                    .structs
-                    .get(struct_name)
-                    .expect(&format!("no struct with name {}", struct_name));
-                struct_data.element_size
-            }
-            Type::Unknown => panic!("unkown type"),
-        }
-    }
-
     fn alloc_type(&mut self, ty: &Type) -> usize {
-        let size: usize = self.get_size(ty);
+        let size: usize = self.type_size(ty);
         self.stack_pos += size;
         self.stack_pos
     }
@@ -256,6 +252,10 @@ impl Gen {
                 return ty;
             }
         }
+        if let Some(global_var) = self.global_vars.get(name) {
+            return global_var;
+        }
+        println!("scopes: {:?}", self.scopes);
         self::panic!("couldnt find the var with name: {}", name);
     }
 
@@ -294,28 +294,6 @@ impl Gen {
 
         for i in stmt.iter() {
             self.gen_stmt(i);
-        }
-    }
-}
-
-impl Stmt {
-    pub fn get_type_gen(&self, helper: &Gen) -> Option<Type> {
-        match self {
-            Stmt::Declaration(data) => {
-                return Some(data.ty.clone());
-            }
-            Stmt::Assignment { target, value } => {
-                let var = lvalue_root(target);
-                if let var = helper.lookup_var(&var) {
-                    return Some(var.var_type.clone());
-                } else {
-                    return None;
-                }
-            }
-            Stmt::ExprStmt(expr) => {
-                todo!();
-            }
-            _ => None,
         }
     }
 }

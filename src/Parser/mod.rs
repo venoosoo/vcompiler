@@ -60,11 +60,12 @@ impl<'a> Parser<'a> {
         &self.m_tokens[pos]
     }
 
-    pub fn expect(&mut self, ty: TokenType) {
+    pub fn expect(&mut self, ty: TokenType) -> Option<bool> {
         if self.peek(0).token != ty {
-            panic!("expected: {:?}\n{:?}", ty, self.m_tokens);
+            return None;
         }
         self.consume();
+        Some(true)
     }
 
     fn consume(&mut self) -> Token {

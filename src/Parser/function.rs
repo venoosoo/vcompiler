@@ -1,12 +1,19 @@
+use crate::Ir::stmt::Declaration;
+
 use super::*;
 
 impl<'a> Parser<'a> {
-    pub fn parse_args(&mut self) -> Vec<Stmt> {
-        let mut res: Vec<Stmt> = Vec::new();
+    pub fn parse_args(&mut self) -> Vec<Declaration> {
+        let mut res: Vec<Declaration> = Vec::new();
         self.consume(); // ( 
         while self.peek(0).token != TokenType::CloseParen {
             let arg = self.parse_declaration().unwrap();
-            res.push(arg);
+            match arg {
+                Stmt::Declaration(decl) => {
+                    res.push(decl);
+                }
+                _ => panic!("daun suka"),
+            }
             if self.peek(0).token == TokenType::Coma {
                 self.consume();
             }

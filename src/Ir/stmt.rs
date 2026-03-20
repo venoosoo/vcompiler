@@ -1,7 +1,7 @@
 use crate::Ir::expr::Expr;
 use crate::Tokenizer::TokenType;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LValue {
     Variable(String),
     Field { base: Box<LValue>, name: String },
@@ -14,11 +14,11 @@ pub enum Type {
     Primitive(TokenType),
     Pointer(Box<Type>),
     Array(Box<Type>, usize),
-    Struct(String),
+    Struct(String), 
     Unknown,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Declaration {
     pub name: String,
     pub ty: Type,
@@ -26,7 +26,7 @@ pub struct Declaration {
 }
 
 /// Statements
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Block(Vec<Stmt>), // scopes
     Declaration(Declaration),
@@ -58,7 +58,7 @@ pub enum Stmt {
     AsmCode(Vec<String>),
     InitFunc {
         name: String,
-        args: Vec<Stmt>,
+        args: Vec<Declaration>,
         ret_type: Type,
         data: Box<Stmt>,
     },
@@ -82,14 +82,14 @@ pub struct Function {
     pub body: Stmt, // usually a Block
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StructField {
     pub name: String,
     pub offset: usize,
     pub ty: Type,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
     pub name: String,
     pub fields: Vec<StructField>,
