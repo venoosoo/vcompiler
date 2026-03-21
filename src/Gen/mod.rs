@@ -209,16 +209,6 @@ impl Gen {
         self.id
     }
 
-    fn get_primitive_size(&self, token: &TokenType) -> usize {
-        match token {
-            TokenType::IntType => 4,
-            TokenType::CharType => 1,
-            TokenType::ShortType => 2,
-            TokenType::LongType => 8,
-            _ => panic!("trying to get size of unexpected type: {:?}", token),
-        }
-    }
-
     fn alloc_type(&mut self, ty: &Type) -> usize {
         let size: usize = self.type_size(ty);
         self.stack_pos += size;

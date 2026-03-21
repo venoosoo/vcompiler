@@ -1,4 +1,4 @@
-use crate::Ir::Stmt;
+use crate::{Ir::Stmt, Tokenizer::Token};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -44,6 +44,9 @@ pub enum Expr {
     },
     SizeOf {
         ty: Box<Stmt>,
+    },
+    String {
+        str: String,
     },
 }
 

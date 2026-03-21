@@ -25,7 +25,7 @@ fn numeric_rank(ty: &Type) -> Option<u8> {
     }
 }
 
-fn is_numeric(ty: &Type) -> bool {
+pub fn is_numeric(ty: &Type) -> bool {
     numeric_rank(ty).is_some()
 }
 

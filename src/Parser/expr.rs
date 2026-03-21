@@ -102,6 +102,11 @@ impl<'a> Parser<'a> {
                 return Expr::SizeOf { ty: Box::new(stmt) };
             }
 
+            TokenType::String => {
+                let str_value = token.value.unwrap();
+                return Expr::String { str: str_value };
+            }
+
             _ => panic!(
                 "Unexpected token in primary expression: {:?}\n{:?}",
                 token.token, self.m_tokens

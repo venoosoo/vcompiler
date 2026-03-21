@@ -102,3 +102,42 @@ fn syscall(long a_rax, long a_rdi, long a_rsi, long a_rdx, long a_r10, long a_r8
     }
     return;
 }
+
+
+fn strlen(char* str) -> long {
+    long i = 0;
+    while str[i] != 0 {
+        i = i + 1;
+    }
+    return i;
+}
+
+fn print_char(char t) {
+    asm {
+        "movsx rax, BYTE [rbp - 1]"
+        "sub rsp, 1"
+        "mov [rsp], al"
+        "mov rax, 1"
+        "mov rdi, 1"
+        "mov rsi, rsp"
+        "mov rdx, 1"
+        "syscall"
+        "add rsp, 1"
+    }
+}
+
+fn print_str(char* str, long length) {
+    for (int i = 0; i < length; i = i + 1) {
+        print_char(str[i]);
+    }
+    asm {
+        "sub rsp, 1"
+        "mov byte [rsp], 10"
+        "mov rax, 1"
+        "mov rdi, 1"
+        "mov rsi, rsp"
+        "mov rdx, 1"
+        "syscall"
+        "add rsp, 1"
+    }
+}

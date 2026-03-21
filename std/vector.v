@@ -1,4 +1,4 @@
-import "../std.v"
+import "std.v"
 
 
 struct Vector {
@@ -46,7 +46,13 @@ fn vector_pop(Vector* vec) -> void* {
     return vec->data + offset;
 }
 
-
+fn vec_get_element(Vector* vec, int element_pos) -> void* {
+    if vec->length < element_pos {
+        exit(1);
+    }
+    long offest = vec->element_size * element_pos;
+    return vec->data + offest;
+}
 
 
 

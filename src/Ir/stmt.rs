@@ -14,7 +14,7 @@ pub enum Type {
     Primitive(TokenType),
     Pointer(Box<Type>),
     Array(Box<Type>, usize),
-    Struct(String), 
+    Struct(String),
     Unknown,
 }
 

@@ -1,5 +1,5 @@
 use crate::Ir::expr::{BinOp, Expr, UnaryOp};
-use crate::sem_analysis::coerce_numeric;
+use crate::sem_analysis::{coerce_numeric, is_numeric};
 
 use super::*;
 use super::{get_word, reg_for_size};
@@ -53,7 +53,7 @@ impl Expr {
             Expr::Index { base, index } => {
                 let base_ty = base.get_type_of_expr(gen_helper);
                 let idx_ty = index.get_type_of_expr(gen_helper);
-                if idx_ty != Type::Primitive(TokenType::LongType) {
+                if !is_numeric(&idx_ty) {
                     self::panic!("Array index must be integer");
                 }
                 match base_ty {
@@ -65,7 +65,7 @@ impl Expr {
             Expr::StructMember { base, name } => {
                 let base_ty = base.get_type_of_expr(gen_helper);
                 let struct_name = match &base_ty {
-                    Type::Struct(n) => n.clone(),  
+                    Type::Struct(n) => n.clone(),
                     Type::Pointer(inner) => match inner.as_ref() {
                         Type::Struct(n) => n.clone(),
                         _ => self::panic!("pointer to non-struct"),
@@ -91,6 +91,12 @@ impl Expr {
                 }
             }
             Expr::SizeOf { ty } => Type::Primitive(TokenType::LongType),
+            Expr::String { str } => {
+                return Type::Array(
+                    Box::new(Type::Primitive(TokenType::CharType)),
+                    str.len() + 1,
+                );
+            }
         }
     }
 }
@@ -125,7 +131,10 @@ impl Gen {
                 } else {
                     self.emit_main("    cdq".to_string());
                 }
-                self.emit_main(format!("    idiv {}", reg_for_size("rbx", expected_type).unwrap()));
+                self.emit_main(format!(
+                    "    idiv {}",
+                    reg_for_size("rbx", expected_type).unwrap()
+                ));
                 // result already in rax
             }
             BinOp::Mod => {
@@ -134,18 +143,25 @@ impl Gen {
                 } else {
                     self.emit_main("    cdq".to_string());
                 }
-                self.emit_main(format!("    idiv {}", reg_for_size("rbx", expected_type).unwrap()));
+                self.emit_main(format!(
+                    "    idiv {}",
+                    reg_for_size("rbx", expected_type).unwrap()
+                ));
                 // remainder in rdx, move to rax
-                self.emit_main(format!("    mov {}, {}", result_reg, reg_for_size("rdx", expected_type).unwrap()));
+                self.emit_main(format!(
+                    "    mov {}, {}",
+                    result_reg,
+                    reg_for_size("rdx", expected_type).unwrap()
+                ));
             }
             BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
                 self.emit_main(format!("    cmp {}, {}", right_reg, left_reg));
                 let set_instr = match op {
-                    BinOp::Eq  => "sete",
+                    BinOp::Eq => "sete",
                     BinOp::Neq => "setne",
-                    BinOp::Lt  => "setl",
+                    BinOp::Lt => "setl",
                     BinOp::Lte => "setle",
-                    BinOp::Gt  => "setg",
+                    BinOp::Gt => "setg",
                     BinOp::Gte => "setge",
                     _ => unreachable!(),
                 };
@@ -320,14 +336,20 @@ impl Gen {
 
     fn gen_expr_struct_member(&mut self, base: &Box<Expr>, name: &String) -> String {
         let base_type = base.get_type_of_expr(self);
-        
+
         let struct_name = match &base_type {
             Type::Struct(n) => n.clone(),
             _ => self::panic!("member access on non-struct"),
         };
-        
-        let field = self.structs.get(&struct_name).unwrap()
-            .elements.get(name).unwrap().clone();
+
+        let field = self
+            .structs
+            .get(&struct_name)
+            .unwrap()
+            .elements
+            .get(name)
+            .unwrap()
+            .clone();
         let size_word = get_word(&field.ty);
 
         match base.as_ref() {
@@ -357,11 +379,11 @@ impl Gen {
         self.eval_expr(expr, expected_type);
         let size_word = get_word(expected_type);
         let sized_rax = reg_for_size("rax", expected_type).unwrap();
-        
+
         match expected_type {
-            Type::Primitive(TokenType::IntType) | 
-            Type::Primitive(TokenType::ShortType) | 
-            Type::Primitive(TokenType::CharType) => {
+            Type::Primitive(TokenType::IntType)
+            | Type::Primitive(TokenType::ShortType)
+            | Type::Primitive(TokenType::CharType) => {
                 self.emit_main(format!("    movsx rax, {} [rax]", size_word));
             }
             _ => {
@@ -417,7 +439,12 @@ impl Gen {
         }
     }
 
-    fn gen_expr_index(&mut self, base: &Box<Expr>, index: &Box<Expr>, expected_type: &Type) -> String {
+    fn gen_expr_index(
+        &mut self,
+        base: &Box<Expr>,
+        index: &Box<Expr>,
+        expected_type: &Type,
+    ) -> String {
         let arr_ty = &base.get_type_of_expr(self);
         self.eval_expr(base, arr_ty);
         self.push_result();
@@ -438,8 +465,17 @@ impl Gen {
         self.emit_main(format!("    imul rax, rax, {}", elem_size,));
         self.pop_into("rbx");
         self.emit_main(format!("    add rax, rbx"));
-        let size_word = get_word(expected_type);
-        self.emit_main(format!("    mov rax, {} [rax]", size_word));
+        let size_word = get_word(&expected_type);
+        match &expected_type {
+            Type::Primitive(TokenType::CharType) | 
+            Type::Primitive(TokenType::ShortType) |
+            Type::Primitive(TokenType::IntType) => {
+                self.emit_main(format!("    movsx rax, {} [rax]", size_word));
+            }
+            _ => {
+                self.emit_main(format!("    mov rax, {} [rax]", size_word));
+            }
+        }
         "rax".to_string()
     }
 
@@ -476,6 +512,21 @@ impl Gen {
         let size = self.type_size(&ty);
         self.emit_main(format!("    mov rax, {}", size));
         "rax".to_string()
+    }
+
+    fn gen_string(&mut self, str: &String) -> String {
+        let expected_ty = Type::Array(
+            Box::new(Type::Primitive(TokenType::CharType)),
+            str.len() + 1,
+        );
+        let mut expr_vec = Vec::new();
+        for char in str.chars() {
+            let expr = Expr::Number(char as i64);
+            expr_vec.push(expr);
+        }
+        expr_vec.push(Expr::Number(0));
+        let reg = self.gen_array_init(&expr_vec, &expected_ty);
+        reg
     }
 
     pub fn eval_expr(&mut self, expr: &Expr, expected_type: &Type) -> String {
@@ -521,6 +572,7 @@ impl Gen {
 
             Expr::SizeOf { ty } => self.gen_size_of(ty),
             Expr::Float(_) => self::panic!("floats not implemented"),
+            Expr::String { str } => self.gen_string(str),
         }
     }
 }

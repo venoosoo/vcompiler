@@ -64,7 +64,8 @@ impl<'a> Analyzer<'a> {
 
     pub fn check_declaration(&mut self, data: &Declaration) {
         if data.ty == Type::Primitive(TokenType::Void) {
-            self.errors.push(SemanticError::VoidVariable(data.name.clone()));
+            self.errors
+                .push(SemanticError::VoidVariable(data.name.clone()));
             return;
         }
         if self.lookup(&data.name).is_some() {
@@ -217,7 +218,7 @@ impl<'a> Analyzer<'a> {
 
         // save outer scopes FIRST before adding any args
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
-        
+
         // push a fresh scope for function args and locals
         self.scopes.push(HashMap::new());
 
@@ -232,10 +233,13 @@ impl<'a> Analyzer<'a> {
             })
             .collect();
 
-        self.functions.insert(name.clone(), SemFuncData {
-            args: func_args,
-            ret_type: ret_type.clone(),
-        });
+        self.functions.insert(
+            name.clone(),
+            SemFuncData {
+                args: func_args,
+                ret_type: ret_type.clone(),
+            },
+        );
 
         self.current_ret_type = ret_type.clone();
         self.check_stmt(body);

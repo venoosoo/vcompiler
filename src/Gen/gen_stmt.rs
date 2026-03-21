@@ -41,7 +41,10 @@ impl Gen {
                 Type::Primitive(_) | Type::Pointer(_) => {
                     let size_word = get_word(&data.ty);
                     let sized_reg = reg_for_size("rax", &data.ty).unwrap();
-                    self.emit_main(format!("    mov {} [rbp - {}], {}", size_word, stack_pos, sized_reg));
+                    self.emit_main(format!(
+                        "    mov {} [rbp - {}], {}",
+                        size_word, stack_pos, sized_reg
+                    ));
                 }
                 _ => {} // structs/arrays already written to stack by their eval_expr
             }
@@ -74,12 +77,18 @@ impl Gen {
                                 }
                             }
 
-                            let field = self.structs.get(struct_name).unwrap()
-                                .elements.get(name).unwrap().clone();
+                            let field = self
+                                .structs
+                                .get(struct_name)
+                                .unwrap()
+                                .elements
+                                .get(name)
+                                .unwrap()
+                                .clone();
                             self.emit_main(format!("    add rsi, {}", field.offset));
                             (Addr::Reg("rsi".to_string()), field.ty.clone())
                         }
-                        _ => self::panic!("field access on non-struct pointer")
+                        _ => self::panic!("field access on non-struct pointer"),
                     },
                     Type::Struct(struct_name) => {
                         let layout = self
@@ -293,11 +302,14 @@ impl Gen {
             let reg = reg_for_size(arg_regs[i], &decl.ty).unwrap();
             self.emit_main(format!("    mov [rbp - {}], {}", pos, reg));
             let map = self.scopes.last_mut().unwrap();
-            map.insert(decl.name.clone(), VarData {
-                global_flag: false,
-                stack_pos: pos,
-                var_type: decl.ty.clone(),
-            });
+            map.insert(
+                decl.name.clone(),
+                VarData {
+                    global_flag: false,
+                    stack_pos: pos,
+                    var_type: decl.ty.clone(),
+                },
+            );
         }
     }
 
@@ -328,7 +340,6 @@ impl Gen {
         self.emit_main(format!("    add rax, {}", field.offset));
         field.ty.clone()
     }
-
 
     pub fn gen_func(&mut self, data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>)) {
         let (name, args, ret_type, body) = data;
@@ -509,16 +520,16 @@ impl Gen {
                 let global_var_data = VarData {
                     global_flag: true,
                     stack_pos: 0,
-                    var_type: decl_data.ty.clone()
+                    var_type: decl_data.ty.clone(),
                 };
 
-                self.global_vars.insert(decl_data.name.clone(), global_var_data);
-                if let Some(expr_data) = &decl_data.initializer
-                {
+                self.global_vars
+                    .insert(decl_data.name.clone(), global_var_data);
+                if let Some(expr_data) = &decl_data.initializer {
                     self.eval_expr(expr_data, &decl_data.ty);
                     match decl_data.ty {
                         Type::Primitive(_) | Type::Pointer(_) => {
-                            self.emit_main(format!("    mov [rel {}], rax",decl_data.name));
+                            self.emit_main(format!("    mov [rel {}], rax", decl_data.name));
                         }
                         _ => {}
                     }

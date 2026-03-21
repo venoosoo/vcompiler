@@ -273,7 +273,7 @@ impl<'a> Analyzer<'a> {
 
         match base_ty {
             Type::Array(arr_type, size) => *arr_type.clone(),
-            Type::Pointer(ty) => todo!(),
+            Type::Pointer(ty) => *ty,
             _ => {
                 self.errors
                     .push(SemanticError::NonArrayIndex(base_ty.clone()));
@@ -325,6 +325,12 @@ impl<'a> Analyzer<'a> {
             Expr::Index { base, index } => self.check_index(base, index, expected_ty),
             Expr::ArrayInit { elements } => self.check_array_init(elements, expected_ty),
             Expr::SizeOf { ty } => self.check_size_of(ty),
+            Expr::String { str } => {
+                return Type::Array(
+                    Box::new(Type::Primitive(TokenType::CharType)),
+                    str.len() + 1,
+                );
+            }
         }
     }
 }

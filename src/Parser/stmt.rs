@@ -86,9 +86,13 @@ impl<'a> Parser<'a> {
     pub fn parse_array(&mut self, mut ty: Type) -> Type {
         while self.m_index < self.m_tokens.len() && self.peek(0).token == TokenType::OpenBracket {
             self.consume();
-            let size = self.consume();
-            self.consume();
-            ty = Type::Array(Box::new(ty), size.value.unwrap().parse::<usize>().unwrap());
+            let size_token = self.consume();
+            let mut size = 0;
+            if size_token.token != TokenType::CloseBracket {
+                size = size_token.value.unwrap().parse::<usize>().unwrap();
+                self.expect(TokenType::CloseBracket);
+            }
+            ty = Type::Array(Box::new(ty), size);
         }
         ty
     }
@@ -120,12 +124,27 @@ impl<'a> Parser<'a> {
         let ty = self.get_type();
         let ty = self.parse_ptr(ty);
         let var_name = self.consume();
-        let ty = self.parse_array(ty);
+        let mut ty = self.parse_array(ty);
+
+
+
 
         let mut expr: Option<Expr> = None;
         if self.peek(0).token == TokenType::Eq {
             self.consume();
-            expr = Some(self.parse_expr());
+            let initializer = self.parse_expr();
+            
+            // fix up char[] size from string literal
+            if let (Type::Array(inner, 0), Expr::String{str: s}) = (&ty, &initializer) {
+                if **inner == Type::Primitive(TokenType::CharType) {
+                    ty = Type::Array(
+                        Box::new(Type::Primitive(TokenType::CharType)),
+                        s.len() + 1
+                    );
+                }
+            }
+            
+            expr = Some(initializer);
         }
         return Some(Stmt::Declaration(Declaration {
             name: var_name.value.unwrap(),
