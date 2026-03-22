@@ -1,4 +1,4 @@
-use crate::{Ir::Stmt, Tokenizer::Token};
+use crate::{Ir::{Stmt, stmt::Type}, Tokenizer::Token};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -48,6 +48,14 @@ pub enum Expr {
     String {
         str: String,
     },
+    GetEnum {
+        base: String,
+        value: String,
+    },
+    Cast {
+        expr: Box<Expr>,
+        ty: Type,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

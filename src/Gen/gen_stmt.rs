@@ -38,7 +38,7 @@ impl Gen {
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data.ty);
             match &data.ty {
-                Type::Primitive(_) | Type::Pointer(_) => {
+                Type::Primitive(_) | Type::Pointer(_) | Type::Enum(_) => {
                     let size_word = get_word(&data.ty);
                     let sized_reg = reg_for_size("rax", &data.ty).unwrap();
                     self.emit_main(format!(
@@ -46,6 +46,17 @@ impl Gen {
                         size_word, stack_pos, sized_reg
                     ));
                 }
+                Type::Array(ty, size) => match **ty {
+                    Type::Primitive(TokenType::CharType) => {
+                        let size_word = get_word(&data.ty);
+                        let sized_reg = reg_for_size("rax", &data.ty).unwrap();
+                        self.emit_main(format!(
+                            "    mov {} [rbp - {}], {}",
+                            size_word, stack_pos, sized_reg
+                        ));
+                    }
+                    _ => {}
+                },
                 _ => {} // structs/arrays already written to stack by their eval_expr
             }
         }
@@ -354,7 +365,19 @@ impl Gen {
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![global_scope]);
         let saved_stack = self.stack_pos;
 
-        self.emit_main(format!("{}:", name));
+        let overload_pos = self.functions.get(name).unwrap()
+            .iter()
+            .position(|func| {
+                func.args.len() == args.len() &&
+                args.iter().enumerate().all(|(i, decl)| func.args[i].ty == decl.ty)
+            })
+            .expect(&format!("no matching overload for '{}'", name));
+        if self.functions.get(name).unwrap().len() > 1 {
+            self.emit_main(format!("{}___{}:", name, overload_pos));
+        } else {
+            self.emit_main(format!("{}:", name));
+        }
+
         self.emit_main("    push rbp".to_string());
         self.emit_main("    mov rbp, rsp".to_string());
         self.emit_main(format!("    sub rsp, {}", func_stack_frame));
@@ -427,6 +450,7 @@ impl Gen {
                     .expect(&format!("Unknown struct: {}", name))
                     .byte_size
             }
+            Type::Enum(_) => 8,
             Type::Unknown => self::panic!("unkown type"),
         }
     }
@@ -482,6 +506,7 @@ impl Gen {
 
             // InitFunc: nested function definition — don't count its stack in ours
             Stmt::InitFunc { .. } => {}
+            Stmt::InitEnum { .. } => {}
             // These don't allocate stack space themselves
             Stmt::Assignment { .. }
             | Stmt::ExprStmt(_)
@@ -539,6 +564,10 @@ impl Gen {
         }
     }
 
+    fn gen_enum(&mut self, name: &String, variants: &Vec<String>) {
+        self.enums.insert(name.clone(), variants.clone());
+    }
+
     pub fn gen_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Block(v) => self.gen_block(v),
@@ -575,6 +604,7 @@ impl Gen {
             } => self.gen_func((name, args, ret_type, data)),
             Stmt::InitStruct(struct_data) => {} // skiping because we already added it in first iteration,
             Stmt::GlobalDecl(global) => self.gen_global(global.clone()),
+            Stmt::InitEnum { name, variants } => self.gen_enum(name, variants),
         }
     }
 }

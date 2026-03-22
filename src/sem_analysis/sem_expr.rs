@@ -163,7 +163,7 @@ impl<'a> Analyzer<'a> {
 
             for (arg, expr) in args.iter().enumerate() {
                 let expr_ty = self.check_expr(expr, expected_ty);
-                if !self.check_types(&func_data.args[arg].arg_type, &expr_ty) {
+                if !check_types(&func_data.args[arg].arg_type, &expr_ty) {
                     self.errors.push(SemanticError::ArgTypeMismatch {
                         func: name.clone(),
                         pos: arg,
@@ -292,7 +292,7 @@ impl<'a> Analyzer<'a> {
 
         for elem in elements.iter().skip(1) {
             let elem_ty = self.check_expr(elem, expected_ty);
-            if !self.check_types(&first_ty, &elem_ty) {
+            if !check_types(&first_ty, &elem_ty) {
                 self.errors.push(SemanticError::TypeMismatch {
                     expected: first_ty.clone(),
                     got: elem_ty,
@@ -331,6 +331,8 @@ impl<'a> Analyzer<'a> {
                     str.len() + 1,
                 );
             }
+            Expr::GetEnum { base, value } => Type::Primitive(TokenType::LongType),
+            Expr::Cast { expr, ty } => ty.clone(),
         }
     }
 }

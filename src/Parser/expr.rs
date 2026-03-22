@@ -55,6 +55,7 @@ impl<'a> Parser<'a> {
                     Expr::Variable(token_value)
                 }
             }
+
             TokenType::Num => Expr::Number(token.value.unwrap().parse().unwrap()),
             TokenType::Mul => {
                 let rhs = self.parse_primary();
@@ -64,11 +65,13 @@ impl<'a> Parser<'a> {
                 let rhs = self.parse_primary();
                 Expr::AddressOf(Box::new(rhs))
             }
+
             TokenType::OpenParen => {
                 let expr = self.parse_expr();
                 self.expect(TokenType::CloseParen);
                 expr
             }
+
             TokenType::Not => {
                 let rhs = self.parse_primary();
                 Expr::Unary {
@@ -177,6 +180,22 @@ impl<'a> Parser<'a> {
                         index: Box::new(index),
                     };
                 }
+
+                TokenType::As => {
+                    self.consume();
+                    let mut pointer_depth = 0;
+                    while self.peek(0).token == TokenType::Mul {
+                        self.consume();
+                        pointer_depth += 1;
+                    }
+                    let ty = self.get_type();
+                    let mut ty = self.parse_ptr(ty);
+                    for _ in 1..pointer_depth {
+                        ty = Type::Pointer(Box::new(ty));
+                    }
+                    return Expr::Cast { expr: Box::new(expr), ty }
+                }
+
                 TokenType::Dot => {
                     self.consume();
                     let name = self.consume().value.unwrap();
@@ -213,10 +232,24 @@ impl<'a> Parser<'a> {
                         args,
                     };
                 }
+
+                TokenType::Colon => {
+                    self.consume();
+                    self.expect(TokenType::Colon);
+                    let value_name = self.consume().value.unwrap();
+                    match expr {
+                        Expr::Variable(name) => {
+                            expr = Expr::GetEnum {
+                                base: name,
+                                value: value_name,
+                            };
+                        }
+                        _ => panic!("really strange error"),
+                    }
+                }
                 _ => break,
             }
         }
-
         expr
     }
 
@@ -245,6 +278,7 @@ impl<'a> Parser<'a> {
 
     fn parse_binary(&mut self, min_prec: u8) -> Expr {
         let mut left = self.parse_unary();
+
 
         loop {
             let op = match Parser::is_bin_op(self.peek(0).token) {

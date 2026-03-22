@@ -50,6 +50,8 @@ pub enum TokenType {
     Import,
     Global,
     SizeOf,
+    Enum,
+    As,
     Semi,
 }
 #[derive(Clone, Debug)]
@@ -140,6 +142,8 @@ impl Tokenizer {
                     "import" => self.push_token(TokenType::Import, None),
                     "global" => self.push_token(TokenType::Global, None),
                     "sizeof" => self.push_token(TokenType::SizeOf, None),
+                    "enum" => self.push_token(TokenType::Enum, None),
+                    "as" => self.push_token(TokenType::As, None),
                     // we think its variable
                     _ => self.push_token(TokenType::Var, Some(self.m_buf.clone())),
                 }

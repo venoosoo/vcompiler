@@ -20,6 +20,7 @@ impl<'a> Parser<'a> {
             TokenType::Func => return self.parse_func_init(),
             TokenType::Struct => return self.parse_struct_init(),
             TokenType::Global => return self.parse_global(),
+            TokenType::Enum => return self.parse_enum(),
             TokenType::Import => {
                 return {
                     self.parse_import();
@@ -41,6 +42,24 @@ impl<'a> Parser<'a> {
                 return self.parse_expr_stmt();
             }
         };
+    }
+
+    fn parse_enum(&mut self) -> Option<Stmt> {
+        self.consume();
+        let name = self.consume().value.unwrap();
+        self.expect(TokenType::OpenScope);
+        let mut variants = Vec::new();
+        while self.peek(0).token != TokenType::CloseScope {
+            let variant_name = self.consume().value.unwrap();
+            if self.peek(0).token == TokenType::Coma {
+                self.consume();
+            }
+            variants.push(variant_name);
+        }
+        self.expect(TokenType::CloseScope);
+        self.types.insert(name.clone());
+        self.enums_table.insert(name.clone(), variants.clone());
+        return Some(Stmt::InitEnum { name, variants });
     }
 
     fn parse_global(&mut self) -> Option<Stmt> {
@@ -66,14 +85,6 @@ impl<'a> Parser<'a> {
             }
             _ => false,
         }
-    }
-
-    pub fn check_ptr(&mut self) -> usize {
-        let mut index = 0;
-        while self.m_index < self.m_tokens.len() && self.peek(0).token == TokenType::Mul {
-            index += 1;
-        }
-        index
     }
 
     pub fn parse_ptr(&mut self, mut ty: Type) -> Type {
@@ -109,7 +120,11 @@ impl<'a> Parser<'a> {
 
         let mut ty = if token.token == TokenType::Var {
             let name = self.types.get(&token.value.unwrap()).unwrap();
-            Type::Struct(name.to_string())
+            if self.struct_table.get(name).is_some() {
+                Type::Struct(name.to_string())
+            } else {
+                Type::Enum(name.to_string())
+            }
         } else {
             Type::Primitive(token.token)
         };
@@ -126,24 +141,18 @@ impl<'a> Parser<'a> {
         let var_name = self.consume();
         let mut ty = self.parse_array(ty);
 
-
-
-
         let mut expr: Option<Expr> = None;
         if self.peek(0).token == TokenType::Eq {
             self.consume();
             let initializer = self.parse_expr();
-            
+
             // fix up char[] size from string literal
-            if let (Type::Array(inner, 0), Expr::String{str: s}) = (&ty, &initializer) {
+            if let (Type::Array(inner, 0), Expr::String { str: s }) = (&ty, &initializer) {
                 if **inner == Type::Primitive(TokenType::CharType) {
-                    ty = Type::Array(
-                        Box::new(Type::Primitive(TokenType::CharType)),
-                        s.len() + 1
-                    );
+                    ty = Type::Array(Box::new(Type::Primitive(TokenType::CharType)), s.len() + 1);
                 }
             }
-            
+
             expr = Some(initializer);
         }
         return Some(Stmt::Declaration(Declaration {
@@ -203,8 +212,8 @@ impl<'a> Parser<'a> {
 
             let mut ty = if self.is_type(&base_token) && base_token.token != TokenType::Var {
                 Type::Primitive(base_token.token)
-            } else if self.is_type(&base_token) && base_token.token == TokenType::Var {
-                Type::Struct(base_token.value.unwrap())
+            } else if let Some(res) = self.get_custom_type(&base_token.value.unwrap()) {
+                res
             } else {
                 panic!("Expected type in struct field");
             };

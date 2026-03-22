@@ -15,6 +15,7 @@ pub enum Type {
     Pointer(Box<Type>),
     Array(Box<Type>, usize),
     Struct(String),
+    Enum(String),
     Unknown,
 }
 
@@ -64,24 +65,11 @@ pub enum Stmt {
     },
     InitStruct(StructDef),
     GlobalDecl(Box<Stmt>),
+    InitEnum {
+        name: String,
+        variants: Vec<String>,
+    },
 }
-
-/// Function argument
-#[derive(Debug, Clone)]
-pub struct Arg {
-    pub name: String,
-    pub ty: Type,
-}
-
-/// Function definition
-#[derive(Debug, Clone)]
-pub struct Function {
-    pub name: String,
-    pub args: Vec<Arg>,
-    pub return_type: Type,
-    pub body: Stmt, // usually a Block
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructField {
     pub name: String,

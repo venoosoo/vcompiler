@@ -60,6 +60,34 @@ pub fn coerce_numeric(a: &Type, b: &Type) -> Type {
     }
 }
 
+
+pub fn check_types(left: &Type, right: &Type) -> bool {
+    if left == right {
+        return true;
+    }
+    // only allow numeric coercion, no ptr<->long
+    if numeric_rank(left).is_some() && numeric_rank(right).is_some() {
+        return true;
+    }
+    // char array compatible with char*
+    if let Type::Array(elem, _) = left {
+        if **elem == Type::Primitive(TokenType::CharType)
+            && *right == Type::Pointer(Box::new(Type::Primitive(TokenType::CharType))) {
+            return true;
+        }
+    }
+    // void* compatible with any pointer
+    let is_void_ptr = |t: &Type| *t == Type::Pointer(Box::new(Type::Primitive(TokenType::Void)));
+    if is_void_ptr(left) && matches!(right, Type::Pointer(_)) {
+        return true;
+    }
+    if is_void_ptr(right) && matches!(left, Type::Pointer(_)) {
+        return true;
+    }
+    false
+}
+
+
 impl<'a> Analyzer<'a> {
     pub fn new(stmts: &'a Vec<Stmt>) -> Self {
         Self {
@@ -92,6 +120,7 @@ impl<'a> Analyzer<'a> {
                     .expect(&format!("Unknown struct: {}", name))
                     .byte_size
             }
+            Type::Enum(_) => 8,
             Type::Unknown => panic!("unkown type"),
         }
     }

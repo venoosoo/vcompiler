@@ -17,6 +17,7 @@ pub struct Parser<'a> {
     expressions: Vec<Stmt>,
     struct_table: HashMap<String, StructDef>,
     types: HashSet<String>,
+    enums_table: HashMap<String, Vec<String>>,
     base_dir: PathBuf,
     imported_files: &'a mut HashSet<String>,
 }
@@ -44,6 +45,7 @@ impl<'a> Parser<'a> {
             struct_table: HashMap::new(),
             expressions: Vec::new(),
             types: HashSet::new(),
+            enums_table: HashMap::new(),
             base_dir,
             imported_files,
         }
@@ -110,9 +112,25 @@ impl<'a> Parser<'a> {
 
             Type::Array(inner, count) => self.size_of(inner) * count,
 
-            Type::Struct(name) => self.struct_table.get(name).expect("Unknown struct").size,
-
+            Type::Struct(name) => {
+                self.struct_table
+                    .get(name)
+                    .expect(&format!("unkown struct: {}", name))
+                    .size
+            }
+            Type::Enum(_) => 8,
             _ => panic!("Unknown type size"),
         }
+    }
+
+    fn get_custom_type(&mut self, name: &String) -> Option<Type> {
+        if self.types.contains(name) {
+            if self.struct_table.contains_key(name) {
+                return Some(Type::Struct(name.clone()));
+            } else if self.enums_table.contains_key(name) {
+                return Some(Type::Enum(name.clone()));
+            }
+        }
+        None
     }
 }

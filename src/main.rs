@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // panic!("errors");
     }
 
-    let mut generator = Gen::Gen::new(res);
+    let mut generator = crate::Ir::r#gen::Gen::new(res);
     let asm = generator.gen_asm()?;
     let mut file = File::create("main.asm")?;
     let _res = file.write(asm.as_bytes())?;

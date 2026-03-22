@@ -7,13 +7,14 @@ use crate::{
     Ir::{
         Stmt,
         expr::Expr,
-        r#gen::{FuncData, StructData},
+        r#gen::{StructData},
         sem_analysis::{Analyzer, ArgData, SemFuncData, SemanticError},
         stmt::{Declaration, LValue, StructDef, Type},
     },
     Tokenizer::TokenType,
-    sem_analysis::numeric_rank,
 };
+
+
 
 impl<'a> Analyzer<'a> {
     pub fn check_block(&mut self, data: &Vec<Stmt>) {
@@ -22,44 +23,6 @@ impl<'a> Analyzer<'a> {
             self.check_stmt(i);
         }
         self.scopes.pop();
-    }
-
-    pub fn check_types(&self, left: &Type, right: &Type) -> bool {
-        // TODO: redo ai slop
-        if left == right {
-            return true;
-        }
-        if numeric_rank(left).is_some() && numeric_rank(right).is_some() {
-            return true;
-        }
-        if let (Type::Array(l_elem, _), Type::Array(r_elem, _)) = (left, right) {
-            return self.check_types(l_elem, r_elem);
-        }
-        if is_ptr_long_pair(left, right) || is_ptr_long_pair(right, left) {
-            return true;
-        }
-        let is_void_ptr =
-            |t: &Type| *t == Type::Pointer(Box::new(Type::Primitive(TokenType::Void)));
-        if is_void_ptr(left)
-            && matches!(
-                right,
-                Type::Pointer(_) | Type::Primitive(TokenType::LongType)
-            )
-        {
-            return true;
-        }
-        if is_void_ptr(right)
-            && matches!(
-                left,
-                Type::Pointer(_) | Type::Primitive(TokenType::LongType)
-            )
-        {
-            return true;
-        }
-        if *right == Type::Primitive(TokenType::Void) {
-            return true;
-        }
-        false
     }
 
     pub fn check_declaration(&mut self, data: &Declaration) {
@@ -75,7 +38,7 @@ impl<'a> Analyzer<'a> {
 
         if let Some(expr) = &data.initializer {
             let expr_ty = self.check_expr(expr, &data.ty);
-            if !self.check_types(&data.ty, &expr_ty) {
+            if !check_types(&data.ty, &expr_ty) {
                 self.errors.push(SemanticError::TypeMismatch {
                     expected: data.ty.clone(),
                     got: expr_ty.clone(),
@@ -148,7 +111,7 @@ impl<'a> Analyzer<'a> {
         // use lvalue_type for actual type check
         let target_ty = self.lvalue_type(target);
         let expr_ty = self.check_expr(value, &target_ty);
-        if !self.check_types(&target_ty, &expr_ty) {
+        if !check_types(&target_ty, &expr_ty) {
             self.errors.push(SemanticError::TypeMismatch {
                 expected: target_ty,
                 got: expr_ty,
@@ -201,7 +164,7 @@ impl<'a> Analyzer<'a> {
         if let Some(expr) = expr {
             expr_ty = self.check_expr(expr, &self.current_ret_type.clone());
         }
-        if !self.check_types(&self.current_ret_type, &expr_ty) {
+        if !check_types(&self.current_ret_type, &expr_ty) {
             self.errors.push(SemanticError::ReturnTypeMismatch {
                 expected: self.current_ret_type.clone(),
                 got: expr_ty.clone(),
@@ -309,6 +272,7 @@ impl<'a> Analyzer<'a> {
                     panic!("global decl must be a declaration");
                 }
             }
+            Stmt::InitEnum { name, variants } => {}
         }
     }
 }

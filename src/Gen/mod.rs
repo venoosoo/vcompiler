@@ -16,20 +16,6 @@ use crate::Ir::sem_analysis::SemanticError;
 mod gen_expr;
 mod gen_stmt;
 
-pub struct Gen {
-    stmts: Vec<Stmt>,
-    stack_pos: usize,
-    out: String,
-    current_return_type: Type,
-    main_code: Vec<String>,
-    data_code: Vec<String>,
-    scopes: Vec<HashMap<String, VarData>>,
-    global_vars: HashMap<String, VarData>,
-    structs: HashMap<String, StructData>,
-    functions: HashMap<String, FuncData>,
-    id: usize,
-}
-
 fn align16(n: usize) -> usize {
     (n + 15) & !15
 }
@@ -57,7 +43,7 @@ pub fn reg_for_size(base: &str, ty: &Type) -> Option<String> {
             _ => return None,
         },
         Type::Unknown => return None,
-        Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) => 8,
+        Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
     };
 
     match (base, size) {
@@ -103,7 +89,7 @@ pub fn arg_pos(pos: usize, ty: &Type) -> String {
             _ => panic!("unsupported primitive type in arg_pos: {:?}", token),
         },
         Type::Unknown => panic!("unkown type"),
-        Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) => 8,
+        Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
     };
 
     match (pos, size) {
@@ -156,6 +142,7 @@ pub fn get_word(ty: &Type) -> String {
         Type::Pointer(_) => "QWORD".to_string(), // 64-bit pointer
         Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
         Type::Struct(struct_name) => "QWORD".to_string(),
+        Type::Enum(_) => "QWORD".to_string(),
         Type::Unknown => panic!("unkown type"),
     }
 }
@@ -182,6 +169,7 @@ impl Gen {
             functions: HashMap::new(),
             out: String::new(),
             global_vars: HashMap::new(),
+            enums: HashMap::new(),
             id: 0,
         }
     }
@@ -267,7 +255,10 @@ impl Gen {
                         args: args.clone(),
                         return_type: ret_type.clone(),
                     };
-                    self.functions.insert(name.clone(), func_data);
+                    self.functions
+                        .entry(name.clone())
+                        .or_insert_with(Vec::new)
+                        .push(func_data);
                 }
                 Stmt::InitStruct(data) => {
                     self.gen_init_struct(&data);

@@ -29,6 +29,24 @@ fn print_num(long n) {
     }
 }
 
+fn print(char* str) {
+    int length = 0;
+    while str[length] != 0 {
+        print_char(str[length])
+        length = length + 1;
+    }
+    asm {
+        "sub rsp, 1"
+        "mov byte [rsp], 10"
+        "mov rax, 1"
+        "mov rdi, 1"
+        "mov rsi, rsp"
+        "mov rdx, 1"
+        "syscall"
+        "add rsp, 1"
+    }
+}
+
 
 fn print(long number) {
     print_num(number);
@@ -43,7 +61,6 @@ fn print(long number) {
         "add rsp, 1"
     }
 }
-
 
 fn exit(int code) {
     asm {
@@ -78,7 +95,7 @@ fn malloc(long size) -> void* {
 }
 
 fn free(long* ptr, long size) {
-    syscall(11, ptr, size, 0, 0, 0);
+    syscall(11, ptr as long, size, 0, 0, 0);
 }
 
 fn memcpy(void* dst, void* src, long size) -> void {
@@ -117,22 +134,6 @@ fn print_char(char t) {
         "movsx rax, BYTE [rbp - 1]"
         "sub rsp, 1"
         "mov [rsp], al"
-        "mov rax, 1"
-        "mov rdi, 1"
-        "mov rsi, rsp"
-        "mov rdx, 1"
-        "syscall"
-        "add rsp, 1"
-    }
-}
-
-fn print_str(char* str, long length) {
-    for (int i = 0; i < length; i = i + 1) {
-        print_char(str[i]);
-    }
-    asm {
-        "sub rsp, 1"
-        "mov byte [rsp], 10"
         "mov rax, 1"
         "mov rdi, 1"
         "mov rsi, rsp"

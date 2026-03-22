@@ -12,6 +12,21 @@ pub struct VarData {
     pub global_flag: bool,
 }
 
+pub struct Gen {
+    pub stmts: Vec<Stmt>,
+    pub stack_pos: usize,
+    pub out: String,
+    pub current_return_type: Type,
+    pub main_code: Vec<String>,
+    pub data_code: Vec<String>,
+    pub scopes: Vec<HashMap<String, VarData>>,
+    pub global_vars: HashMap<String, VarData>,
+    pub structs: HashMap<String, StructData>,
+    pub functions: HashMap<String, Vec<FuncData>>,
+    pub enums: HashMap<String, Vec<String>>,
+    pub id: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct FuncData {
     pub args: Vec<Declaration>,
