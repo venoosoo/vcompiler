@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, env::var};
 
 use crate::{
     Ir::{
         Stmt,
         r#gen::StructData,
         sem_analysis::*,
-        stmt::{StructField, Type},
+        stmt::{EnumData, StructField, Type},
     },
     Tokenizer::TokenType,
 };
@@ -60,7 +60,6 @@ pub fn coerce_numeric(a: &Type, b: &Type) -> Type {
     }
 }
 
-
 pub fn check_types(left: &Type, right: &Type) -> bool {
     if left == right {
         return true;
@@ -72,7 +71,8 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
     // char array compatible with char*
     if let Type::Array(elem, _) = left {
         if **elem == Type::Primitive(TokenType::CharType)
-            && *right == Type::Pointer(Box::new(Type::Primitive(TokenType::CharType))) {
+            && *right == Type::Pointer(Box::new(Type::Primitive(TokenType::CharType)))
+        {
             return true;
         }
     }
@@ -87,7 +87,6 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
     false
 }
 
-
 impl<'a> Analyzer<'a> {
     pub fn new(stmts: &'a Vec<Stmt>) -> Self {
         Self {
@@ -97,6 +96,7 @@ impl<'a> Analyzer<'a> {
             functions: HashMap::new(),
             structs: HashMap::new(),
             global_vars: HashMap::new(),
+            enums: HashMap::new(),
             current_ret_type: Type::Unknown,
             loop_depth: 0,
         }
@@ -166,6 +166,13 @@ impl<'a> Analyzer<'a> {
                         elements: fields,
                     };
                     self.structs.insert(data.name.clone(), struct_data);
+                }
+                Stmt::InitEnum { name, variants } => {
+                    let enum_data = EnumData {
+                        name: name.clone(),
+                        variants: variants.clone(),
+                    };
+                    self.enums.insert(name.clone(), enum_data);
                 }
                 _ => {}
             }

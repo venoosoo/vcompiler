@@ -7,14 +7,12 @@ use crate::{
     Ir::{
         Stmt,
         expr::Expr,
-        r#gen::{StructData},
+        r#gen::StructData,
         sem_analysis::{Analyzer, ArgData, SemFuncData, SemanticError},
         stmt::{Declaration, LValue, StructDef, Type},
     },
     Tokenizer::TokenType,
 };
-
-
 
 impl<'a> Analyzer<'a> {
     pub fn check_block(&mut self, data: &Vec<Stmt>) {

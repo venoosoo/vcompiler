@@ -38,7 +38,7 @@ impl Gen {
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data.ty);
             match &data.ty {
-                Type::Primitive(_) | Type::Pointer(_) | Type::Enum(_) => {
+                Type::Primitive(_) | Type::Pointer(_) => {
                     let size_word = get_word(&data.ty);
                     let sized_reg = reg_for_size("rax", &data.ty).unwrap();
                     self.emit_main(format!(
@@ -335,7 +335,7 @@ impl Gen {
     }
 
     pub fn member_addr(&mut self, base: &Expr, field_name: &str) -> Type {
-        let base_type = base.get_type_of_expr(self);
+        let base_type = base.get_type(self);
         self.eval_expr(base, &base_type); // rax = pointer to struct
 
         let struct_name = match &base_type {
@@ -365,11 +365,17 @@ impl Gen {
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![global_scope]);
         let saved_stack = self.stack_pos;
 
-        let overload_pos = self.functions.get(name).unwrap()
+        let overload_pos = self
+            .functions
+            .get(name)
+            .unwrap()
             .iter()
             .position(|func| {
-                func.args.len() == args.len() &&
-                args.iter().enumerate().all(|(i, decl)| func.args[i].ty == decl.ty)
+                func.args.len() == args.len()
+                    && args
+                        .iter()
+                        .enumerate()
+                        .all(|(i, decl)| func.args[i].ty == decl.ty)
             })
             .expect(&format!("no matching overload for '{}'", name));
         if self.functions.get(name).unwrap().len() > 1 {
@@ -450,7 +456,7 @@ impl Gen {
                     .expect(&format!("Unknown struct: {}", name))
                     .byte_size
             }
-            Type::Enum(_) => 8,
+            Type::Enum(name) => self.enum_get_size(name),
             Type::Unknown => self::panic!("unkown type"),
         }
     }
@@ -564,10 +570,6 @@ impl Gen {
         }
     }
 
-    fn gen_enum(&mut self, name: &String, variants: &Vec<String>) {
-        self.enums.insert(name.clone(), variants.clone());
-    }
-
     pub fn gen_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Block(v) => self.gen_block(v),
@@ -604,7 +606,7 @@ impl Gen {
             } => self.gen_func((name, args, ret_type, data)),
             Stmt::InitStruct(struct_data) => {} // skiping because we already added it in first iteration,
             Stmt::GlobalDecl(global) => self.gen_global(global.clone()),
-            Stmt::InitEnum { name, variants } => self.gen_enum(name, variants),
+            Stmt::InitEnum { name, variants } => {}
         }
     }
 }

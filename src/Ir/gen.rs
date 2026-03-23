@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::Ir::{
     Stmt,
-    stmt::{Declaration, StructField, Type},
+    stmt::{Declaration, EnumData, StructField, Type},
 };
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct Gen {
     pub global_vars: HashMap<String, VarData>,
     pub structs: HashMap<String, StructData>,
     pub functions: HashMap<String, Vec<FuncData>>,
-    pub enums: HashMap<String, Vec<String>>,
+    pub enums: HashMap<String, EnumData>,
     pub id: usize,
 }
 

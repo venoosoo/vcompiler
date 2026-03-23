@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::Ir::expr::Expr;
 use crate::Tokenizer::TokenType;
 
@@ -67,7 +69,7 @@ pub enum Stmt {
     GlobalDecl(Box<Stmt>),
     InitEnum {
         name: String,
-        variants: Vec<String>,
+        variants: HashMap<String, EnumVariant>,
     },
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +77,19 @@ pub struct StructField {
     pub name: String,
     pub offset: usize,
     pub ty: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: String,
+    pub tag: usize,
+    pub args: Vec<Declaration>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumData {
+    pub name: String,
+    pub variants: HashMap<String, EnumVariant>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -7,8 +7,8 @@ use crate::Ir::Stmt;
 use crate::Ir::expr::Expr;
 use crate::Ir::r#gen::*;
 use crate::Ir::sem_analysis::Analyzer;
-use crate::Ir::stmt::LValue;
 use crate::Ir::stmt::Type;
+use crate::Ir::stmt::{EnumData, LValue};
 use crate::Tokenizer::TokenType;
 
 use crate::Ir::sem_analysis::SemanticError;
@@ -203,6 +203,11 @@ impl Gen {
         self.stack_pos
     }
 
+    fn alloc(&mut self, size: usize) -> usize {
+        self.stack_pos += size;
+        self.stack_pos
+    }
+
     pub fn gen_asm(&mut self) -> Result<String, Box<dyn std::error::Error>> {
         self.gen_stmts();
         self.emit("section .data".to_string());
@@ -262,6 +267,13 @@ impl Gen {
                 }
                 Stmt::InitStruct(data) => {
                     self.gen_init_struct(&data);
+                }
+                Stmt::InitEnum { name, variants } => {
+                    let enum_data = EnumData {
+                        name: name.clone(),
+                        variants: variants.clone(),
+                    };
+                    self.enums.insert(name.clone(), enum_data);
                 }
                 _ => {}
             }

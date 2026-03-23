@@ -1,5 +1,6 @@
 use std::env::Args;
 
+use crate::Ir::expr::{EnumExprField, Lookup};
 use crate::Ir::sem_analysis::SemanticError;
 use crate::{
     Ir::{
@@ -11,6 +12,90 @@ use crate::{
 };
 
 use super::*;
+
+impl<'a> Lookup for Analyzer<'a> {
+    fn look_var(&self, name: &String) -> Type {
+        if self.structs.get(name).is_some() {
+            return Type::Struct(name.clone());
+        } else {
+            let var = self.look_var(name);
+            var
+        }
+    }
+    fn look_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> Type {
+        match op {
+            UnaryOp::Neg => expr.get_type(self),
+            UnaryOp::Not => Type::Primitive(TokenType::CharType), // boolean
+        }
+    }
+    fn look_binary(&self, op: &BinOp, left: &Box<Expr>, right: &Box<Expr>) -> Type {
+        let lty = left.get_type(self);
+        let rty = right.get_type(self);
+        coerce_numeric(&lty, &rty)
+    }
+    fn look_struct_init(&self, struct_name: &String) -> Type {
+        if let Some(_struct_data) = self.structs.get(struct_name) {
+            Type::Struct(struct_name.clone())
+        } else {
+            panic!("Struct {} not found in get_type", struct_name);
+        }
+    }
+    fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type {
+        match ptr_expr.get_type(self) {
+            Type::Pointer(inner) => *inner,
+            _ => panic!("Cannot dereference a non-pointer"),
+        }
+    }
+    fn look_addres_of(&self, var_expr: &Box<Expr>) -> Type {
+        let ty = var_expr.get_type(self);
+        Type::Pointer(Box::new(ty))
+    }
+    fn look_index(&self, base: &Box<Expr>, index: &Box<Expr>) -> Type {
+        let base_ty = base.get_type(self);
+        let idx_ty = index.get_type(self);
+        if !is_numeric(&idx_ty) {
+            panic!("Array index must be integer");
+        }
+        match base_ty {
+            Type::Array(elem_ty, _) => *elem_ty,
+            Type::Pointer(elem_ty) => *elem_ty,
+            _ => panic!("Cannot index into non-array type"),
+        }
+    }
+    fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type {
+        let base_ty = base.get_type(self);
+        let struct_name = match &base_ty {
+            Type::Struct(n) => n.clone(),
+            Type::Pointer(inner) => match inner.as_ref() {
+                Type::Struct(n) => n.clone(),
+                _ => panic!("pointer to non-struct"),
+            },
+            _ => panic!("member access on non-struct"),
+        };
+        let struct_data = self.structs.get(&struct_name).unwrap();
+        let field = struct_data.elements.get(name).unwrap();
+        field.ty.clone()
+    }
+    fn look_call(&self, name: &String, args: &Vec<Expr>) -> Type {
+        let vec_func_data = self.functions.get(name).unwrap();
+        let func_data =
+            vec_func_data.args.iter().enumerate().all(|(index, expr)| {
+                check_types(&expr.arg_type, &vec_func_data.args[index].arg_type)
+            });
+        vec_func_data.ret_type.clone()
+    }
+    fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
+        if elements.len() > 0 {
+            return elements[0].get_type(self);
+        } else {
+            Type::Unknown
+        }
+    }
+
+    fn look_get_enum(&self, base: &String) -> Type {
+        Type::Enum(base.clone())
+    }
+}
 
 impl<'a> Analyzer<'a> {
     fn check_num(&mut self, num: &i64, expected_ty: &Type) -> Type {
@@ -201,10 +286,13 @@ impl<'a> Analyzer<'a> {
         for (arg_name, arg) in fields.iter() {
             let res = struct_data.elements.get(arg_name);
             if let Some(struct_arg) = res {
-                // needs rework of get_type_of_expr
-                //if struct_arg.ty != arg.get_type_of_expr(gen_helper) {
-                //    self.errors.push(SemanticError::StructTypeMismatch { struct_name: struct_name.clone(), expected: struct_arg.ty.clone(), got: arg.get_type_of_expr(gen_helper) });
-                //}
+                if check_types(&struct_arg.ty, &arg.get_type(self)) {
+                    self.errors.push(SemanticError::StructTypeMismatch {
+                        struct_name: struct_name.clone(),
+                        expected: struct_arg.ty.clone(),
+                        got: arg.get_type(self),
+                    });
+                }
             } else {
                 self.errors.push(SemanticError::StructNameNotFound {
                     struct_name: struct_name.clone(),
@@ -307,6 +395,31 @@ impl<'a> Analyzer<'a> {
         Type::Primitive(TokenType::LongType)
     }
 
+    fn check_gen_enum(
+        &mut self,
+        base: &String,
+        value: &HashMap<String, EnumExprField>,
+        variant: &String,
+    ) -> Type {
+        let enum_data = self
+            .enums
+            .get(base)
+            .expect(&format!("no enums with name: {}\n{:?}", base, self.enums));
+        let variant_data = enum_data
+            .variants
+            .get(variant)
+            .expect(&format!("in struct: {} no variant {}", base, variant));
+        for arg in variant_data.args.iter() {
+            if let Some(enum_field) = value.get(&arg.name) {
+                if !check_types(&enum_field.expr.get_type(self), &arg.ty) {
+                    panic!("debil²")
+                }
+            } else {
+            }
+        }
+        Type::Enum(base.clone())
+    }
+
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {
         match expr {
             Expr::Number(num) => self.check_num(num, expected_ty),
@@ -331,7 +444,11 @@ impl<'a> Analyzer<'a> {
                     str.len() + 1,
                 );
             }
-            Expr::GetEnum { base, value } => Type::Primitive(TokenType::LongType),
+            Expr::GetEnum {
+                base,
+                value,
+                variant,
+            } => self.check_gen_enum(base, value, variant),
             Expr::Cast { expr, ty } => ty.clone(),
         }
     }

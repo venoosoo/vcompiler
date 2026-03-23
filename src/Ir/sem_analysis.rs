@@ -4,7 +4,7 @@ use crate::Ir::{
     Stmt,
     expr::{BinOp, UnaryOp},
     r#gen::StructData,
-    stmt::Type,
+    stmt::{EnumData, Type},
 };
 
 #[derive(Debug, Clone)]
@@ -26,6 +26,7 @@ pub struct Analyzer<'a> {
     pub scopes: Vec<HashMap<String, Type>>,
     pub global_vars: HashMap<String, Type>,
     pub functions: HashMap<String, SemFuncData>,
+    pub enums: HashMap<String, EnumData>,
     pub structs: HashMap<String, StructData>,
     pub current_ret_type: Type,
     // track loop depth for break/continue

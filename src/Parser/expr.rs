@@ -11,6 +11,7 @@ impl<'a> Parser<'a> {
         while self.peek(0).token != TokenType::CloseScope {
             let name_token = self.consume();
             if name_token.token != TokenType::Var {
+                println!("name_token: {:?}", name_token);
                 panic!("expected field name in struct init");
             }
 
@@ -167,6 +168,14 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_enum_expr_field(&mut self) -> EnumExprField {
+        let name = self.consume().value.unwrap();
+        self.expect(TokenType::Colon);
+        let expr = self.parse_expr();
+        self.expect(TokenType::Coma);
+        return EnumExprField { name, expr };
+    }
+
     pub fn parse_postfix_chain(&mut self) -> Expr {
         let mut expr = self.parse_primary();
         loop {
@@ -193,7 +202,10 @@ impl<'a> Parser<'a> {
                     for _ in 1..pointer_depth {
                         ty = Type::Pointer(Box::new(ty));
                     }
-                    return Expr::Cast { expr: Box::new(expr), ty }
+                    return Expr::Cast {
+                        expr: Box::new(expr),
+                        ty,
+                    };
                 }
 
                 TokenType::Dot => {
@@ -237,14 +249,25 @@ impl<'a> Parser<'a> {
                     self.consume();
                     self.expect(TokenType::Colon);
                     let value_name = self.consume().value.unwrap();
+                    let mut variant_expr: HashMap<String, EnumExprField> = HashMap::new();
+                    if self.peek(0).token == TokenType::OpenParen {
+                        self.expect(TokenType::OpenParen);
+                        while self.peek(0).token != TokenType::CloseParen {
+                            let res = self.parse_enum_expr_field();
+                            variant_expr.insert(res.name.clone(), res);
+                        }
+                        self.expect(TokenType::CloseParen);
+                    }
+                    self.expect(TokenType::Semi);
                     match expr {
                         Expr::Variable(name) => {
                             expr = Expr::GetEnum {
                                 base: name,
-                                value: value_name,
+                                variant: value_name,
+                                value: variant_expr,
                             };
                         }
-                        _ => panic!("really strange error"),
+                        _ => panic!("really strange syntax error"),
                     }
                 }
                 _ => break,
@@ -278,8 +301,6 @@ impl<'a> Parser<'a> {
 
     fn parse_binary(&mut self, min_prec: u8) -> Expr {
         let mut left = self.parse_unary();
-
-
         loop {
             let op = match Parser::is_bin_op(self.peek(0).token) {
                 Some(op) => op,

@@ -44,21 +44,50 @@ impl<'a> Parser<'a> {
         };
     }
 
+    fn parse_enum_field(&mut self, tag: usize) -> EnumVariant {
+        let name = self.consume().value.unwrap();
+        let mut args: Vec<Declaration> = Vec::new();
+        if self.peek(0).token == TokenType::Coma {
+            return EnumVariant { name, args, tag };
+        }
+        self.expect(TokenType::OpenScope);
+        while self.peek(0).token != TokenType::CloseScope {
+            let ty = self.get_type();
+            let ty = self.parse_ptr(ty);
+            let name = self.consume().value.unwrap();
+            let ty = self.parse_array(ty);
+            self.expect(TokenType::Semi);
+            args.push(Declaration {
+                name,
+                ty,
+                initializer: None,
+            });
+        }
+        self.expect(TokenType::CloseScope);
+        return EnumVariant { name, args, tag };
+    }
+
     fn parse_enum(&mut self) -> Option<Stmt> {
         self.consume();
         let name = self.consume().value.unwrap();
         self.expect(TokenType::OpenScope);
-        let mut variants = Vec::new();
+        let mut variants: HashMap<String, EnumVariant> = HashMap::new();
+        let mut tag = 0;
         while self.peek(0).token != TokenType::CloseScope {
-            let variant_name = self.consume().value.unwrap();
-            if self.peek(0).token == TokenType::Coma {
-                self.consume();
-            }
-            variants.push(variant_name);
+            let res = self.parse_enum_field(tag);
+            tag += 1;
+            self.expect(TokenType::Coma);
+            variants.insert(res.name.clone(), res);
         }
         self.expect(TokenType::CloseScope);
         self.types.insert(name.clone());
-        self.enums_table.insert(name.clone(), variants.clone());
+        self.enums_table.insert(
+            name.clone(),
+            EnumData {
+                name: name.clone(),
+                variants: variants.clone(),
+            },
+        );
         return Some(Stmt::InitEnum { name, variants });
     }
 

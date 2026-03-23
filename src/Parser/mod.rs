@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use crate::Ir::expr::{BinOp, Expr, UnaryOp};
 use crate::Tokenizer::{Token, TokenType};
 
-use crate::Ir::stmt::{Stmt, StructDef, Type};
+use crate::Ir::stmt::{EnumData, EnumVariant, Stmt, StructDef, Type};
 
 pub mod expr;
 pub mod function;
@@ -17,7 +17,7 @@ pub struct Parser<'a> {
     expressions: Vec<Stmt>,
     struct_table: HashMap<String, StructDef>,
     types: HashSet<String>,
-    enums_table: HashMap<String, Vec<String>>,
+    enums_table: HashMap<String, EnumData>,
     base_dir: PathBuf,
     imported_files: &'a mut HashSet<String>,
 }
