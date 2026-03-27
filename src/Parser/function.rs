@@ -25,6 +25,7 @@ impl<'a> Parser<'a> {
     pub fn parse_func_init(&mut self) -> Option<Stmt> {
         self.consume(); //keyword
         let name = self.consume().value.unwrap();
+        let generics = self.parse_generic();
         let args = self.parse_args();
         let mut ret_type = Type::Primitive(TokenType::Void);
         if self.peek(0).token == TokenType::Access {
@@ -39,6 +40,7 @@ impl<'a> Parser<'a> {
                 .expect(&format!("the func: {} is empty", name)),
         );
         return Some(Stmt::InitFunc {
+            generic_types: generics,
             name,
             args,
             ret_type,

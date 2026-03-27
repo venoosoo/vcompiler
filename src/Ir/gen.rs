@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::Ir::{
     Stmt,
@@ -19,8 +19,11 @@ pub struct Gen {
     pub current_return_type: Type,
     pub main_code: Vec<String>,
     pub data_code: Vec<String>,
+    pub highest_stack_pos: usize,
+    pub generics: HashSet<String>,
     pub scopes: Vec<HashMap<String, VarData>>,
     pub global_vars: HashMap<String, VarData>,
+    pub func_out: String,
     pub structs: HashMap<String, StructData>,
     pub functions: HashMap<String, Vec<FuncData>>,
     pub enums: HashMap<String, EnumData>,
@@ -37,6 +40,8 @@ pub struct FuncData {
 #[derive(Debug, Clone)]
 pub struct StructData {
     pub elements: HashMap<String, StructField>,
+    pub name: String,
+    pub generic_type: Vec<String>,
     pub byte_size: usize,
 }
 

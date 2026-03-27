@@ -3,6 +3,7 @@ use std::io::Read;
 
 use super::*;
 
+use crate::Gen::type_name;
 use crate::Ir::expr::Expr;
 use crate::Ir::stmt::*;
 use crate::Tokenizer;
@@ -21,6 +22,7 @@ impl<'a> Parser<'a> {
             TokenType::Struct => return self.parse_struct_init(),
             TokenType::Global => return self.parse_global(),
             TokenType::Enum => return self.parse_enum(),
+            TokenType::Match => return self.parse_match(),
             TokenType::Import => {
                 return {
                     self.parse_import();
@@ -44,32 +46,112 @@ impl<'a> Parser<'a> {
         };
     }
 
+    fn parse_match_field(&mut self) -> MatchLeftValue {
+        let base = self.peek(0).value.clone().unwrap();
+        if base == "_" {
+            self.consume();
+            return MatchLeftValue::Enum {
+                base,
+                value: "_".to_string(),
+                args: Vec::new(),
+            };
+        }
+        if self.peek(1).token == TokenType::Colon {
+            self.consume();
+            self.expect(TokenType::Colon);
+            self.expect(TokenType::Colon);
+            let value = self.consume().value.unwrap();
+            let mut args: Vec<String> = Vec::new();
+            if self.peek(0).token == TokenType::OpenParen {
+                self.expect(TokenType::OpenParen);
+                while self.peek(0).token != TokenType::CloseParen {
+                    let name = self.consume().value.unwrap();
+                    args.push(name);
+                    if self.peek(0).token == TokenType::Coma {
+                        self.consume();
+                    }
+                }
+                self.expect(TokenType::CloseParen);
+            }
+            return MatchLeftValue::Enum { base, value, args };
+        } else {
+            let left = self.parse_expr();
+            return MatchLeftValue::Expr { expr: left };
+        }
+    }
+
+    fn parse_match(&mut self) -> Option<Stmt> {
+        self.consume();
+        let expr = self.parse_expr();
+        self.expect(TokenType::OpenScope);
+        let mut variants: Vec<MatchField> = Vec::new();
+        while self.peek(0).token != TokenType::CloseScope {
+            let left = self.parse_match_field();
+            self.expect(TokenType::Eq);
+            self.expect(TokenType::More);
+            let stmt = self.parse_stmt().expect("in match expected stmt");
+            let res = MatchField { left, right: stmt };
+            variants.push(res);
+            self.expect(TokenType::Coma);
+        }
+        self.expect(TokenType::CloseScope);
+        return Some(Stmt::Match { expr, variants });
+    }
+
     fn parse_enum_field(&mut self, tag: usize) -> EnumVariant {
         let name = self.consume().value.unwrap();
-        let mut args: Vec<Declaration> = Vec::new();
+        let mut args: Vec<StructField> = Vec::new();
         if self.peek(0).token == TokenType::Coma {
             return EnumVariant { name, args, tag };
         }
         self.expect(TokenType::OpenScope);
+        let mut offset = 0;
         while self.peek(0).token != TokenType::CloseScope {
             let ty = self.get_type();
             let ty = self.parse_ptr(ty);
             let name = self.consume().value.unwrap();
             let ty = self.parse_array(ty);
             self.expect(TokenType::Semi);
-            args.push(Declaration {
+            args.push(StructField {
                 name,
-                ty,
-                initializer: None,
+                offset,
+                ty: ty.clone(),
             });
+            offset += self.size_of(&ty);
         }
         self.expect(TokenType::CloseScope);
         return EnumVariant { name, args, tag };
     }
 
+    pub fn parse_generic(&mut self) -> Vec<String> {
+        let mut generic = Vec::new();
+        if self.peek(0).token == TokenType::Less {
+            self.consume();
+            while self.peek(0).token != TokenType::More {
+                let generic_ty_name = {
+                    let token = self.consume();
+                    if let Some(token_name) = token.value {
+                        token_name
+                    } else {
+                        type_name(&Type::Primitive(token.token))
+                    }
+                };
+                if self.peek(0).token == TokenType::Coma {
+                    self.consume();
+                }
+                self.types.insert(generic_ty_name.clone());
+                self.generic.insert(generic_ty_name.clone());
+                generic.push(generic_ty_name);
+            }
+        }
+        self.expect(TokenType::More);
+        generic
+    }
+
     fn parse_enum(&mut self) -> Option<Stmt> {
         self.consume();
         let name = self.consume().value.unwrap();
+        let generic = self.parse_generic();
         self.expect(TokenType::OpenScope);
         let mut variants: HashMap<String, EnumVariant> = HashMap::new();
         let mut tag = 0;
@@ -84,11 +166,12 @@ impl<'a> Parser<'a> {
         self.enums_table.insert(
             name.clone(),
             EnumData {
+                generic_type: generic.clone(),
                 name: name.clone(),
                 variants: variants.clone(),
             },
         );
-        return Some(Stmt::InitEnum { name, variants });
+        return Some(Stmt::InitEnum { name, variants, generic_types: generic });
     }
 
     fn parse_global(&mut self) -> Option<Stmt> {
@@ -151,6 +234,8 @@ impl<'a> Parser<'a> {
             let name = self.types.get(&token.value.unwrap()).unwrap();
             if self.struct_table.get(name).is_some() {
                 Type::Struct(name.to_string())
+            } else if self.generic.get(name).is_some() {
+                Type::GenericType(name.clone())
             } else {
                 Type::Enum(name.to_string())
             }
@@ -164,12 +249,33 @@ impl<'a> Parser<'a> {
         ty
     }
 
+    fn parse_generic_types(&mut self, ty: Type) -> Type {
+        if self.peek(0).token == TokenType::Less {
+            self.consume();
+            let mut res = Vec::new();
+            while self.peek(0).token != TokenType::More {
+                let ty = self.get_type();
+                let ty = self.parse_ptr(ty);
+                let ty = self.parse_array(ty);
+                res.push(ty);
+                if self.peek(0).token == TokenType::Coma {
+                    self.consume();
+                }
+            }
+            self.consume();
+            return Type::GenericInst(type_name(&ty), res)
+        } else {
+            return  ty;
+        }
+    
+    }
+
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
         let ty = self.get_type();
         let ty = self.parse_ptr(ty);
+        let ty = self.parse_generic_types(ty);
         let var_name = self.consume();
         let mut ty = self.parse_array(ty);
-
         let mut expr: Option<Expr> = None;
         if self.peek(0).token == TokenType::Eq {
             self.consume();
@@ -192,7 +298,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_import(&mut self) {
-        self.consume(); // consume 'import' keyword
+        self.consume();
         let file_name = self.consume().value.unwrap();
         let full_path = self
             .base_dir
@@ -200,7 +306,6 @@ impl<'a> Parser<'a> {
             .canonicalize()
             .expect(&format!("Cannot find import: {}", file_name));
 
-        // check canonical path, not the raw string
         let canonical_str = full_path.to_str().unwrap().to_string();
         if self.imported_files.contains(&canonical_str) {
             return;
@@ -230,7 +335,7 @@ impl<'a> Parser<'a> {
         self.consume(); // 'struct'
 
         let struct_name = self.consume().value.unwrap();
-
+        let generic = self.parse_generic();
         self.expect(TokenType::OpenScope);
 
         let mut fields: Vec<StructField> = Vec::new();
@@ -271,6 +376,7 @@ impl<'a> Parser<'a> {
 
         let def = StructDef {
             name: struct_name.clone(),
+            generic_type: generic,
             fields,
             size: struct_size,
         };

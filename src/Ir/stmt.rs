@@ -18,6 +18,8 @@ pub enum Type {
     Array(Box<Type>, usize),
     Struct(String),
     Enum(String),
+    GenericType(String),
+    GenericInst(String, Vec<Type>),
     Unknown,
 }
 
@@ -61,6 +63,7 @@ pub enum Stmt {
     AsmCode(Vec<String>),
     InitFunc {
         name: String,
+        generic_types: Vec<String>,
         args: Vec<Declaration>,
         ret_type: Type,
         data: Box<Stmt>,
@@ -69,7 +72,12 @@ pub enum Stmt {
     GlobalDecl(Box<Stmt>),
     InitEnum {
         name: String,
+        generic_types: Vec<String>,
         variants: HashMap<String, EnumVariant>,
+    },
+    Match {
+        expr: Expr,
+        variants: Vec<MatchField>,
     },
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -83,12 +91,13 @@ pub struct StructField {
 pub struct EnumVariant {
     pub name: String,
     pub tag: usize,
-    pub args: Vec<Declaration>,
+    pub args: Vec<StructField>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumData {
     pub name: String,
+    pub generic_type: Vec<String>,
     pub variants: HashMap<String, EnumVariant>,
 }
 
@@ -96,5 +105,24 @@ pub struct EnumData {
 pub struct StructDef {
     pub name: String,
     pub fields: Vec<StructField>,
+    pub generic_type: Vec<String>,
     pub size: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchField {
+    pub left: MatchLeftValue,
+    pub right: Stmt,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchLeftValue {
+    Enum {
+        base: String,
+        value: String,
+        args: Vec<String>,
+    },
+    Expr {
+        expr: Expr,
+    },
 }

@@ -249,12 +249,12 @@ impl<'a> Parser<'a> {
                     self.consume();
                     self.expect(TokenType::Colon);
                     let value_name = self.consume().value.unwrap();
-                    let mut variant_expr: HashMap<String, EnumExprField> = HashMap::new();
+                    let mut variant_expr: Vec<EnumExprField> = Vec::new();
                     if self.peek(0).token == TokenType::OpenParen {
                         self.expect(TokenType::OpenParen);
                         while self.peek(0).token != TokenType::CloseParen {
                             let res = self.parse_enum_expr_field();
-                            variant_expr.insert(res.name.clone(), res);
+                            variant_expr.push(res);
                         }
                         self.expect(TokenType::CloseParen);
                     }

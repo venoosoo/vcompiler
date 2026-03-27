@@ -18,7 +18,7 @@ impl<'a> Lookup for Analyzer<'a> {
         if self.structs.get(name).is_some() {
             return Type::Struct(name.clone());
         } else {
-            let var = self.look_var(name);
+            let var = self.lookup(name).unwrap();
             var
         }
     }
@@ -398,7 +398,7 @@ impl<'a> Analyzer<'a> {
     fn check_gen_enum(
         &mut self,
         base: &String,
-        value: &HashMap<String, EnumExprField>,
+        value: &Vec<EnumExprField>,
         variant: &String,
     ) -> Type {
         let enum_data = self
@@ -409,13 +409,12 @@ impl<'a> Analyzer<'a> {
             .variants
             .get(variant)
             .expect(&format!("in struct: {} no variant {}", base, variant));
-        for arg in variant_data.args.iter() {
-            if let Some(enum_field) = value.get(&arg.name) {
-                if !check_types(&enum_field.expr.get_type(self), &arg.ty) {
-                    panic!("debil²")
-                }
-            } else {
+        for (index, arg) in variant_data.args.iter().enumerate() {
+            let enum_field = &value[index];
+            if !check_types(&enum_field.expr.get_type(self), &arg.ty) {
+                panic!("debil²")
             }
+
         }
         Type::Enum(base.clone())
     }

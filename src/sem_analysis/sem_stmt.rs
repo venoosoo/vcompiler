@@ -9,7 +9,7 @@ use crate::{
         expr::Expr,
         r#gen::StructData,
         sem_analysis::{Analyzer, ArgData, SemFuncData, SemanticError},
-        stmt::{Declaration, LValue, StructDef, Type},
+        stmt::{Declaration, LValue, MatchField, MatchLeftValue, StructDef, Type},
     },
     Tokenizer::TokenType,
 };
@@ -170,8 +170,8 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn check_init_func(&mut self, data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>)) {
-        let (name, args, ret_type, body) = data;
+    pub fn check_init_func(&mut self, data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>, &Vec<String>)) {
+        let (name, args, ret_type, body, generic_types) = data;
 
         if self.functions.get(name).is_none() {
             println!("something strange inside check_init_func");
@@ -220,11 +220,72 @@ impl<'a> Analyzer<'a> {
             }
 
             let struct_data = StructData {
+                name: data.name.clone(),
+                generic_type: Vec::new(),
                 elements,
                 byte_size: data.size,
             };
 
             self.structs.insert(data.name.clone(), struct_data);
+        }
+    }
+
+    fn get_match_left_value_type(&self, lvalue: &MatchLeftValue) -> Type {
+        match lvalue {
+            MatchLeftValue::Enum { base, value, args } => {
+                return Type::Enum(base.clone());
+            }
+            MatchLeftValue::Expr { expr } => expr.get_type(self),
+        }
+    }
+
+    fn check_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) {
+        let expr_ty = expr.get_type(self);
+        match expr_ty.clone() {
+            Type::Enum(enum_data) => {
+                for var in variants {
+                    let left_ty = self.get_match_left_value_type(&var.left);
+
+                    if !check_types(&left_ty, &expr_ty) {
+                        match left_ty.clone() {
+                            Type::Enum(name) => {
+                                if name == "_" {
+                                    continue;
+                                }
+                            }
+                            _ => {}
+                        }
+                        self.errors.push(SemanticError::MatchTypeMismatch {
+                            expected: expr_ty.clone(),
+                            got: left_ty.clone(),
+                        });
+                    }
+                }
+            }
+            Type::Primitive(ty) => {
+                for var in variants {
+                    let left_ty = self.get_match_left_value_type(&var.left);
+                    if !check_types(&left_ty, &expr_ty) {
+                        match left_ty.clone() {
+                            Type::Enum(name) => {
+                                if name == "_" {
+                                    continue;
+                                }
+                            }
+                            _ => {}
+                        }
+                        self.errors.push(SemanticError::MatchTypeMismatch {
+                            expected: expr_ty.clone(),
+                            got: left_ty.clone(),
+                        });
+                    }
+                }
+            }
+
+            _ => {
+                self.errors
+                    .push(SemanticError::MatchExprUnsuported(expr_ty.clone()));
+            }
         }
     }
 
@@ -259,8 +320,9 @@ impl<'a> Analyzer<'a> {
                 args,
                 ret_type,
                 data,
+                generic_types,
             } => {
-                self.check_init_func((name, args, ret_type, data));
+                self.check_init_func((name, args, ret_type, data,generic_types));
             }
             Stmt::InitStruct(struct_data) => self.check_struct_init(struct_data),
             Stmt::GlobalDecl(global) => {
@@ -270,7 +332,8 @@ impl<'a> Analyzer<'a> {
                     panic!("global decl must be a declaration");
                 }
             }
-            Stmt::InitEnum { name, variants } => {}
+            Stmt::InitEnum { .. } => {}
+            Stmt::Match { expr, variants } => self.check_match(expr, variants),
         }
     }
 }

@@ -20,6 +20,33 @@ fn align16(n: usize) -> usize {
     (n + 15) & !15
 }
 
+
+pub fn type_name(ty: &Type) -> String {
+    match ty {
+        Type::Primitive(token) => match token {
+            TokenType::IntType   => "int".to_string(),
+            TokenType::LongType  => "long".to_string(),
+            TokenType::CharType  => "char".to_string(),
+            TokenType::ShortType => "short".to_string(),
+            TokenType::Void      => "void".to_string(),
+            _ => format!("{:?}", token),
+        },
+        Type::Pointer(inner) => format!("{}*", type_name(inner)),
+        Type::Array(inner, size) => format!("{}[{}]", type_name(inner), size),
+        Type::Struct(name) => name.clone(),
+        Type::Enum(name) => name.clone(),
+        Type::GenericType(name) => name.clone(),
+        Type::GenericInst(name, types) => {
+            let type_args = types.iter()
+                .map(|t| type_name(t))
+                .collect::<Vec<_>>()
+                .join("_");
+            format!("{}__{}", name, type_args)
+        }
+        Type::Unknown => "unknown".to_string(),
+    }
+}
+
 fn to_base_reg(reg: &str) -> &str {
     match reg {
         "eax" | "ax" | "al" => "rax",
@@ -42,7 +69,8 @@ pub fn reg_for_size(base: &str, ty: &Type) -> Option<String> {
             TokenType::LongType => 8,
             _ => return None,
         },
-        Type::Unknown => return None,
+
+        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => return None,
         Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
     };
 
@@ -88,7 +116,7 @@ pub fn arg_pos(pos: usize, ty: &Type) -> String {
             TokenType::LongType => 8,
             _ => panic!("unsupported primitive type in arg_pos: {:?}", token),
         },
-        Type::Unknown => panic!("unkown type"),
+        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => panic!("unkown type"),
         Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
     };
 
@@ -143,7 +171,7 @@ pub fn get_word(ty: &Type) -> String {
         Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
         Type::Struct(struct_name) => "QWORD".to_string(),
         Type::Enum(_) => "QWORD".to_string(),
-        Type::Unknown => panic!("unkown type"),
+        Type::Unknown | Type::GenericType(_)  | Type::GenericInst(..) => panic!("unkown type"),
     }
 }
 
@@ -168,6 +196,9 @@ impl Gen {
             structs: HashMap::new(),
             functions: HashMap::new(),
             out: String::new(),
+            generics: HashSet::new(),
+            highest_stack_pos: 0,
+            func_out: String::new(),
             global_vars: HashMap::new(),
             enums: HashMap::new(),
             id: 0,
@@ -176,6 +207,10 @@ impl Gen {
 
     fn emit(&mut self, s: String) {
         let _ = writeln!(self.out, "{}", s);
+    }
+
+    fn emit_to_func(&mut self, s: String) {
+        let _ = writeln!(self.func_out, "{}", s);
     }
 
     fn emit_main(&mut self, s: String) {
@@ -200,11 +235,17 @@ impl Gen {
     fn alloc_type(&mut self, ty: &Type) -> usize {
         let size: usize = self.type_size(ty);
         self.stack_pos += size;
+        if self.highest_stack_pos < self.stack_pos {
+            self.highest_stack_pos = self.stack_pos
+        }
         self.stack_pos
     }
 
     fn alloc(&mut self, size: usize) -> usize {
         self.stack_pos += size;
+        if self.highest_stack_pos < self.stack_pos {
+            self.highest_stack_pos = self.stack_pos
+        }
         self.stack_pos
     }
 
@@ -255,6 +296,7 @@ impl Gen {
                     args,
                     ret_type,
                     data,
+                    generic_types
                 } => {
                     let func_data = FuncData {
                         args: args.clone(),
@@ -268,12 +310,14 @@ impl Gen {
                 Stmt::InitStruct(data) => {
                     self.gen_init_struct(&data);
                 }
-                Stmt::InitEnum { name, variants } => {
+                Stmt::InitEnum { name, variants,generic_types } => {
                     let enum_data = EnumData {
                         name: name.clone(),
+                        generic_type: generic_types.clone(),
                         variants: variants.clone(),
                     };
                     self.enums.insert(name.clone(), enum_data);
+                    
                 }
                 _ => {}
             }

@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use crate::Ir::expr::{BinOp, Expr, UnaryOp};
 use crate::Tokenizer::{Token, TokenType};
 
-use crate::Ir::stmt::{EnumData, EnumVariant, Stmt, StructDef, Type};
+use crate::Ir::stmt::{EnumData, EnumVariant, MatchLeftValue, Stmt, StructDef, Type};
 
 pub mod expr;
 pub mod function;
@@ -19,6 +19,7 @@ pub struct Parser<'a> {
     types: HashSet<String>,
     enums_table: HashMap<String, EnumData>,
     base_dir: PathBuf,
+    generic: HashSet<String>,
     imported_files: &'a mut HashSet<String>,
 }
 
@@ -45,6 +46,7 @@ impl<'a> Parser<'a> {
             struct_table: HashMap::new(),
             expressions: Vec::new(),
             types: HashSet::new(),
+            generic: HashSet::new(),
             enums_table: HashMap::new(),
             base_dir,
             imported_files,
@@ -119,7 +121,11 @@ impl<'a> Parser<'a> {
                     .size
             }
             Type::Enum(_) => 8,
-            _ => panic!("Unknown type size"),
+            Type::GenericType(_) => 0,
+            _ => {
+                println!("ty: {:?}",ty);
+                panic!("Unknown type size")
+            },
         }
     }
 

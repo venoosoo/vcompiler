@@ -64,6 +64,9 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
     if left == right {
         return true;
     }
+    if matches!(left, Type::GenericType(_)) || matches!(right, Type::GenericType(_)) {
+        return true;
+    }
     // only allow numeric coercion, no ptr<->long
     if numeric_rank(left).is_some() && numeric_rank(right).is_some() {
         return true;
@@ -83,6 +86,10 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
     }
     if is_void_ptr(right) && matches!(left, Type::Pointer(_)) {
         return true;
+    }
+    // GenericInst compatible with same base type
+    if let (Type::GenericType(l_name), Type::GenericType(r_name)) = (left, right) {
+        return l_name == r_name;
     }
     false
 }
@@ -120,6 +127,8 @@ impl<'a> Analyzer<'a> {
                     .expect(&format!("Unknown struct: {}", name))
                     .byte_size
             }
+            Type::GenericInst(..) => todo!(),
+            Type::GenericType(_) => todo!(),
             Type::Enum(_) => 8,
             Type::Unknown => panic!("unkown type"),
         }
@@ -133,6 +142,7 @@ impl<'a> Analyzer<'a> {
                     args,
                     ret_type,
                     data,
+                    generic_types
                 } => {
                     let params: Vec<ArgData> = {
                         let func_args: Vec<ArgData> = args
@@ -162,14 +172,17 @@ impl<'a> Analyzer<'a> {
                         res
                     };
                     let struct_data = StructData {
+                        name: data.name.clone(),
+                        generic_type: data.generic_type.clone(),
                         byte_size: data.size,
                         elements: fields,
                     };
                     self.structs.insert(data.name.clone(), struct_data);
                 }
-                Stmt::InitEnum { name, variants } => {
+                Stmt::InitEnum { name, variants, generic_types } => {
                     let enum_data = EnumData {
                         name: name.clone(),
+                        generic_type: generic_types.clone(),
                         variants: variants.clone(),
                     };
                     self.enums.insert(name.clone(), enum_data);
@@ -179,7 +192,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn lookup(&mut self, expected_name: &String) -> Option<Type> {
+    pub fn lookup(&self, expected_name: &String) -> Option<Type> {
         for i in self.scopes.iter() {
             for (name, ty) in i {
                 if name == expected_name {

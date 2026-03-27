@@ -86,6 +86,10 @@ pub enum SemanticError {
     NotAStruct(Type),
     InvalidArrayIndex(Type),
     NonArrayIndex(Type),
+    MatchTypeMismatch {
+        expected: Type,
+        got: Type,
+    },
     InvalidUnary {
         op: UnaryOp,
         ty: Type,
@@ -95,6 +99,7 @@ pub enum SemanticError {
         left: Type,
         right: Type,
     },
+    MatchExprUnsuported(Type),
     DerefNonPointer(Type),
     CircularStruct(String),
     MissingReturn(String),

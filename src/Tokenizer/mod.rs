@@ -52,6 +52,8 @@ pub enum TokenType {
     SizeOf,
     Enum,
     As,
+    Match,
+    Other,
     Semi,
 }
 #[derive(Clone, Debug)]
@@ -143,6 +145,7 @@ impl Tokenizer {
                     "global" => self.push_token(TokenType::Global, None),
                     "sizeof" => self.push_token(TokenType::SizeOf, None),
                     "enum" => self.push_token(TokenType::Enum, None),
+                    "match" => self.push_token(TokenType::Match, None),
                     "as" => self.push_token(TokenType::As, None),
                     // we think its variable
                     _ => self.push_token(TokenType::Var, Some(self.m_buf.clone())),
@@ -216,6 +219,7 @@ impl Tokenizer {
                     '}' => self.push_token(TokenType::CloseScope, None),
                     '[' => self.push_token(TokenType::OpenBracket, None),
                     ']' => self.push_token(TokenType::CloseBracket, None),
+                    '_' => self.push_token(TokenType::Other, Some('_'.to_string())),
                     '<' => {
                         if self.peek(0) == '=' {
                             self.push_token(TokenType::LessThan, None);

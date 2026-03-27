@@ -56,7 +56,7 @@ pub enum Expr {
     GetEnum {
         base: String,
         variant: String,
-        value: HashMap<String, EnumExprField>,
+        value: Vec<EnumExprField>,
     },
     Cast {
         expr: Box<Expr>,
