@@ -20,15 +20,14 @@ fn align16(n: usize) -> usize {
     (n + 15) & !15
 }
 
-
 pub fn type_name(ty: &Type) -> String {
     match ty {
         Type::Primitive(token) => match token {
-            TokenType::IntType   => "int".to_string(),
-            TokenType::LongType  => "long".to_string(),
-            TokenType::CharType  => "char".to_string(),
+            TokenType::IntType => "int".to_string(),
+            TokenType::LongType => "long".to_string(),
+            TokenType::CharType => "char".to_string(),
             TokenType::ShortType => "short".to_string(),
-            TokenType::Void      => "void".to_string(),
+            TokenType::Void => "void".to_string(),
             _ => format!("{:?}", token),
         },
         Type::Pointer(inner) => format!("{}*", type_name(inner)),
@@ -37,7 +36,8 @@ pub fn type_name(ty: &Type) -> String {
         Type::Enum(name) => name.clone(),
         Type::GenericType(name) => name.clone(),
         Type::GenericInst(name, types) => {
-            let type_args = types.iter()
+            let type_args = types
+                .iter()
                 .map(|t| type_name(t))
                 .collect::<Vec<_>>()
                 .join("_");
@@ -171,7 +171,7 @@ pub fn get_word(ty: &Type) -> String {
         Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
         Type::Struct(struct_name) => "QWORD".to_string(),
         Type::Enum(_) => "QWORD".to_string(),
-        Type::Unknown | Type::GenericType(_)  | Type::GenericInst(..) => panic!("unkown type"),
+        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => panic!("unkown type"),
     }
 }
 
@@ -296,7 +296,7 @@ impl Gen {
                     args,
                     ret_type,
                     data,
-                    generic_types
+                    generic_types,
                 } => {
                     let func_data = FuncData {
                         args: args.clone(),
@@ -310,14 +310,17 @@ impl Gen {
                 Stmt::InitStruct(data) => {
                     self.gen_init_struct(&data);
                 }
-                Stmt::InitEnum { name, variants,generic_types } => {
+                Stmt::InitEnum {
+                    name,
+                    variants,
+                    generic_types,
+                } => {
                     let enum_data = EnumData {
                         name: name.clone(),
                         generic_type: generic_types.clone(),
                         variants: variants.clone(),
                     };
                     self.enums.insert(name.clone(), enum_data);
-                    
                 }
                 _ => {}
             }

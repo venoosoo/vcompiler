@@ -10,8 +10,6 @@ use crate::Ir::expr::{Expr, Lookup};
 use crate::Ir::stmt::{EnumVariant, LValue, MatchField, MatchLeftValue, StructDef, StructField};
 use crate::Ir::{Stmt, stmt::Declaration};
 
-
-
 fn substitute_type(ty: &Type, params: &Vec<String>, args: &Vec<Type>) -> Type {
     match ty {
         Type::GenericType(name) => {
@@ -21,15 +19,14 @@ fn substitute_type(ty: &Type, params: &Vec<String>, args: &Vec<Type>) -> Type {
                 ty.clone()
             }
         }
-        Type::Pointer(inner) => {
-            Type::Pointer(Box::new(substitute_type(inner, params, args)))
-        }
+        Type::Pointer(inner) => Type::Pointer(Box::new(substitute_type(inner, params, args))),
         Type::Array(inner, size) => {
             Type::Array(Box::new(substitute_type(inner, params, args)), *size)
         }
         Type::GenericInst(name, inner_args) => {
             // substitute inside nested generics e.g. Option<Vec<T>>
-            let new_args = inner_args.iter()
+            let new_args = inner_args
+                .iter()
                 .map(|a| substitute_type(a, params, args))
                 .collect();
             Type::GenericInst(name.clone(), new_args)
@@ -37,8 +34,6 @@ fn substitute_type(ty: &Type, params: &Vec<String>, args: &Vec<Type>) -> Type {
         _ => ty.clone(),
     }
 }
-
-
 
 impl Gen {
     fn gen_block(&mut self, data: &Vec<Stmt>) {
@@ -52,43 +47,59 @@ impl Gen {
     }
 
     fn monomorphize_struct(&mut self, def: &StructData, type_args: &Vec<Type>) -> Type {
-        let mangled = format!("{}__{}", def.name, type_args.iter()
-            .map(|t| type_name(t))
-            .collect::<Vec<_>>()
-            .join("_"));
-
+        let mangled = format!(
+            "{}__{}",
+            def.name,
+            type_args
+                .iter()
+                .map(|t| type_name(t))
+                .collect::<Vec<_>>()
+                .join("_")
+        );
         if self.structs.contains_key(&mangled) {
             return Type::Struct(mangled.clone()); // already done
         }
-
+        
         // substitute types in fields and recompute offsets
         let mut offset = 0;
-        let fields: Vec<StructField> = def.elements.iter().map(|f| {
-            let concrete_ty = substitute_type(&f.1.ty, &def.generic_type, type_args);
-            let field_size = self.type_size(&concrete_ty);
-            let field = StructField {
-                name: f.1.name.clone(),
-                ty: concrete_ty,
-                offset,
-            };
-            offset += field_size;
-            field
-        }).collect();
-
-        self.structs.insert(mangled.clone(), StructData {
-            generic_type: Vec::new(),
-            name: mangled.clone(),
-            elements: fields.iter().map(|f| (f.name.clone(), f.clone())).collect(),
-            byte_size: offset, // total size
-        });
+        let fields: Vec<StructField> = def
+            .elements
+            .iter()
+            .map(|f| {
+                let concrete_ty = substitute_type(&f.1.ty, &def.generic_type, type_args);
+                let field_size = self.type_size(&concrete_ty);
+                let field = StructField {
+                    name: f.1.name.clone(),
+                    ty: concrete_ty,
+                    offset,
+                };
+                offset += field_size;
+                field
+            })
+            .collect();
+        self.structs.insert(
+            mangled.clone(),
+            StructData {
+                generic_type: Vec::new(),
+                name: mangled.clone(),
+                elements: fields.iter().map(|f| (f.name.clone(), f.clone())).collect(),
+                byte_size: offset, // total size
+            },
+        );
+        println!("suka: {:?}",self.structs);
         return Type::Struct(mangled);
     }
 
     fn monomorphize_enum(&mut self, def: &EnumData, type_args: &Vec<Type>) -> Type {
-        let mangled = format!("{}__{}", def.name, type_args.iter()
-            .map(|t| type_name(t))
-            .collect::<Vec<_>>()
-            .join("_"));
+        let mangled = format!(
+            "{}__{}",
+            def.name,
+            type_args
+                .iter()
+                .map(|t| type_name(t))
+                .collect::<Vec<_>>()
+                .join("_")
+        );
 
         if self.enums.contains_key(&mangled) {
             return Type::Enum(mangled.clone()); // already done
@@ -96,27 +107,34 @@ impl Gen {
 
         let mut new_variants = HashMap::new();
         for (var_name, variant) in def.variants.iter() {
-            let new_args: Vec<StructField> = variant.args.iter().map(|arg| {
-                StructField {
+            let new_args: Vec<StructField> = variant
+                .args
+                .iter()
+                .map(|arg| StructField {
                     name: arg.name.clone(),
                     ty: substitute_type(&arg.ty, &def.generic_type, type_args),
                     offset: arg.offset,
-                }
-            }).collect();
-            new_variants.insert(var_name.clone(), EnumVariant {
-                name: variant.name.clone(),
-                tag: variant.tag,
-                args: new_args,
-            });
+                })
+                .collect();
+            new_variants.insert(
+                var_name.clone(),
+                EnumVariant {
+                    name: variant.name.clone(),
+                    tag: variant.tag,
+                    args: new_args,
+                },
+            );
         }
-        self.enums.insert(mangled.clone(), EnumData {
-            name: mangled.clone(),
-            generic_type: Vec::new(),
-            variants: new_variants,
-        });
-        return Type::Enum(mangled)
+        self.enums.insert(
+            mangled.clone(),
+            EnumData {
+                name: mangled.clone(),
+                generic_type: Vec::new(),
+                variants: new_variants,
+            },
+        );
+        return Type::Enum(mangled);
     }
-
 
     pub fn ensure_monomorphized(&mut self, ty: &Type) -> Type {
         match ty {
@@ -126,34 +144,38 @@ impl Gen {
                 if self.structs.contains_key(&mangled) {
                     return Type::Struct(mangled.clone());
                 }
-                if self.enums.contains_key(&mangled)  {
+                if self.enums.contains_key(&mangled) {
                     return Type::Enum(mangled.clone());
                 }
                 // find the generic definition and monomorphize
                 if let Some(struct_def) = self.structs.get(name).cloned() {
-                    return  self.monomorphize_struct(&struct_def, type_args);
+                    return self.monomorphize_struct(&struct_def, type_args);
                 } else if let Some(enum_def) = self.enums.get(name).cloned() {
-                    return  self.monomorphize_enum(&enum_def, type_args);
+                    return self.monomorphize_enum(&enum_def, type_args);
                 } else {
                     self::panic!("unknown generic type: {}", name);
                 }
             }
-            Type::Pointer(inner) => self.ensure_monomorphized(inner),
-            Type::Array(inner, _) => self.ensure_monomorphized(inner),
-            _ => {ty.clone()},
+            Type::Pointer(inner) => {
+                let ty = self.ensure_monomorphized(inner);
+                Type::Pointer(Box::new(ty))
+            }
+            Type::Array(inner, size) => {
+                let ty = self.ensure_monomorphized(inner);
+                Type::Array(Box::new(ty), *size)
+            }
+            _ => ty.clone(),
         }
     }
 
-
     fn gen_declaration(&mut self, data: &Declaration) {
-
         let data_ty = self.ensure_monomorphized(&data.ty);
         let stack_pos = self.alloc_type(&data_ty);
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
             self::panic!("Variable already declared in this scope");
         }
-
+        
         let var_data = VarData {
             global_flag: false,
             stack_pos,
@@ -183,14 +205,6 @@ impl Gen {
                     }
                     _ => {}
                 },
-                Type::Enum(name) => {
-                    let size_word = get_word(&data_ty);
-                    let sized_reg = reg_for_size("rax", &data_ty).unwrap();
-                    self.emit_to_func(format!(
-                        "    mov {} [rbp - {}], {}",
-                        size_word, stack_pos, sized_reg
-                    ));
-                }
                 _ => {} // structs/arrays already written to stack by their eval_expr
             }
         }
@@ -529,31 +543,18 @@ impl Gen {
 
     pub fn gen_init_struct(&mut self, data: &StructDef) {
         let mut elements = HashMap::new();
-
         for field in &data.fields {
             elements.insert(field.name.clone(), field.clone());
         }
 
         let struct_data = StructData {
             name: data.name.clone(),
-            generic_type: Vec::new(),
+            generic_type: data.generic_type.clone(),
             elements,
             byte_size: data.size,
         };
 
         self.structs.insert(data.name.clone(), struct_data);
-
-        self.emit_to_func(format!("; ===== struct {} =====", data.name));
-        self.emit_to_func(format!("; size: {}", data.size));
-
-        for field in &data.fields {
-            self.emit_to_func(format!(
-                "; field {} | offset: {} | type: {:?}",
-                field.name, field.offset, field.ty
-            ));
-        }
-
-        self.emit_to_func(format!("; ======================"));
     }
 
     pub fn type_size(&self, ty: &Type) -> usize {
@@ -575,9 +576,9 @@ impl Gen {
             }
             Type::Enum(name) => self.enum_get_size(name),
             Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => {
-                println!("{:?}",ty);
+                println!("{:?}", ty);
                 self::panic!("unkown type")
-            },
+            }
         }
     }
 
@@ -624,7 +625,7 @@ impl Gen {
         }
     }
 
-    fn gen_match_field(&mut self, variant: &MatchField, var_name: &String,expr_ty: &Type) {
+    fn gen_match_field(&mut self, variant: &MatchField, var_name: &String, expr_ty: &Type) {
         match &variant.left {
             MatchLeftValue::Enum { base, value, args } => {
                 if base == "_" || args.len() < 1 {
@@ -632,11 +633,11 @@ impl Gen {
                     return;
                 }
                 let new_base = {
-                        match expr_ty {
-                            Type::Enum(name) => name,
-                            _ => base,
-                        }
-                    };
+                    match expr_ty {
+                        Type::Enum(name) => name,
+                        _ => base,
+                    }
+                };
                 let var_data = self.lookup_var(var_name);
                 let var_pos = var_data.stack_pos;
                 let enum_data = self.enums.get(new_base).unwrap().clone();
@@ -662,7 +663,7 @@ impl Gen {
                     let pos = var_pos - field.offset - 8;
                     let reg = reg_for_size("rax", &field.ty).unwrap();
                     match field.ty {
-                        Type::Primitive(_) => {
+                        Type::Primitive(_) | Type::Array(..) => {
                             self.emit_to_func(format!("    mov {reg}, [rbp - {pos}]"));
                         }
                         Type::Unknown => {
@@ -711,7 +712,13 @@ impl Gen {
         }
     }
 
-    fn gen_match_asm_func(&mut self, variant: &MatchField, id: usize, expr_var_name: &String, expr_ty: &Type) {
+    fn gen_match_asm_func(
+        &mut self,
+        variant: &MatchField,
+        id: usize,
+        expr_var_name: &String,
+        expr_ty: &Type,
+    ) {
         match &variant.left {
             MatchLeftValue::Expr { expr } => match expr {
                 Expr::Number(num) => {
@@ -737,7 +744,7 @@ impl Gen {
             }
         }
         self.scopes.push(HashMap::new());
-        self.gen_match_field(&variant, expr_var_name,expr_ty);
+        self.gen_match_field(&variant, expr_var_name, expr_ty);
         self.emit_to_func(format!("    jmp match_end_{id}"));
         self.scopes.pop();
     }
@@ -749,12 +756,13 @@ impl Gen {
         match expr {
             Expr::Variable(var_name) => {
                 for var in variants {
-                    self.gen_match_asm_checking(var, id,&expr_ty);
+                    self.gen_match_asm_checking(var, id, &expr_ty);
                 }
+                self.emit_to_func(format!("    jmp match_end_{id}"));
                 for var in variants {
-                    self.gen_match_asm_func(var, id, var_name,&expr_ty);
+                    self.gen_match_asm_func(var, id, var_name, &expr_ty);
                 }
-                self.emit_to_func(format!("match_end_{}:",id));
+                self.emit_to_func(format!("match_end_{}:", id));
             }
             _ => self::panic!("no supported match expr"),
         }

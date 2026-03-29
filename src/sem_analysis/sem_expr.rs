@@ -414,7 +414,6 @@ impl<'a> Analyzer<'a> {
             if !check_types(&enum_field.expr.get_type(self), &arg.ty) {
                 panic!("debil²")
             }
-
         }
         Type::Enum(base.clone())
     }

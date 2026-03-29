@@ -123,9 +123,9 @@ impl<'a> Parser<'a> {
             Type::Enum(_) => 8,
             Type::GenericType(_) => 0,
             _ => {
-                println!("ty: {:?}",ty);
+                println!("ty: {:?}", ty);
                 panic!("Unknown type size")
-            },
+            }
         }
     }
 
@@ -135,6 +135,8 @@ impl<'a> Parser<'a> {
                 return Some(Type::Struct(name.clone()));
             } else if self.enums_table.contains_key(name) {
                 return Some(Type::Enum(name.clone()));
+            } else {
+                return Some(Type::GenericType(name.clone()));
             }
         }
         None

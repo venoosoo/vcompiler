@@ -142,7 +142,7 @@ impl<'a> Analyzer<'a> {
                     args,
                     ret_type,
                     data,
-                    generic_types
+                    generic_types,
                 } => {
                     let params: Vec<ArgData> = {
                         let func_args: Vec<ArgData> = args
@@ -179,7 +179,11 @@ impl<'a> Analyzer<'a> {
                     };
                     self.structs.insert(data.name.clone(), struct_data);
                 }
-                Stmt::InitEnum { name, variants, generic_types } => {
+                Stmt::InitEnum {
+                    name,
+                    variants,
+                    generic_types,
+                } => {
                     let enum_data = EnumData {
                         name: name.clone(),
                         generic_type: generic_types.clone(),

@@ -234,7 +234,7 @@ impl Gen {
     }
 
     fn gen_expr_var(&mut self, var_name: &String, expected_type: &Type) -> String {
-        let var_data = self.lookup_var(var_name);
+        let var_data = self.lookup_var(var_name).clone();
 
         if var_data.global_flag {
             match var_data.var_type {
@@ -273,12 +273,24 @@ impl Gen {
             Type::Pointer(_) => {
                 self.emit_to_func(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
-            Type::Array(ty, _) => match **ty {
-                Type::Primitive(TokenType::CharType) => {
-                    self.emit_to_func(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
-                }
-                _ => self.emit_to_func(format!("    lea rax, [rbp - {}]", var_data.stack_pos)),
-            },
+            Type::Array(ty, size) => {
+                let src = var_data.stack_pos;
+                let dst = self.stack_pos;
+                let id = self.get_id();
+                let res_size = self.type_size(ty);
+                let reg = reg_for_size("rax", ty).unwrap();
+                self.emit_to_func(format!("    lea rsi, [rbp - {}]", src));
+                self.emit_to_func(format!("    lea rdi, [rbp - {}]", dst));
+                self.emit_to_func(format!("    mov rcx, {}", size));
+                self.emit_to_func(format!(".copy_loop_{}:", id));
+                self.emit_to_func(format!("    mov {reg}, [rsi]"));
+                self.emit_to_func(format!("    mov [rdi], {reg}"));
+                self.emit_to_func(format!("    add rsi, {res_size}"));
+                self.emit_to_func(format!("    add rdi, {res_size}"));
+                self.emit_to_func(        "    dec rcx".to_string());
+                self.emit_to_func(format!("    jnz .copy_loop_{}", id));
+                    
+            }
             Type::Enum(ty) => {
                 self.emit_to_func(format!("    mov rax, [rbp - {}]", var_data.stack_pos));
             }
@@ -356,29 +368,115 @@ impl Gen {
         return "rax".to_string();
     }
 
+    fn generic_to_ty(&self, ty: &Type, type_map: &HashMap<String, Type>) -> Type {
+        match ty {
+            Type::GenericType(name) => {
+                return type_map.get(name).cloned().unwrap();
+            }
+            Type::Array(arr_ty, size) => {
+                let res = self.generic_to_ty(arr_ty, type_map);
+                return res
+            }
+            Type::Pointer(ptr_ty) => {
+                let res = self.generic_to_ty(ptr_ty, type_map);
+                return res
+            }
+            _ => return ty.clone(),
+        }
+    }
+
+
+
+    fn resolve_generic(&self, expr_ty: &Type, field_ty: &Type,type_map: &mut HashMap<String, Type>) {
+        match field_ty {
+            Type::GenericType(param_name) => {
+                type_map.insert(param_name.clone(), expr_ty.clone());
+            }
+            Type::Array(ty, size) => {
+                self.resolve_generic(expr_ty, ty, type_map);
+            }
+            Type::Pointer(ty) => {
+                self.resolve_generic(expr_ty, ty, type_map);
+            }
+            _ => {},
+        }
+    }
+
+    fn gen_generic_struct(&mut self, fields: &Vec<(String, Expr)>, struct_name: &String) -> String {
+        let struct_data = self.structs.get(struct_name).unwrap().clone();
+
+        let mut type_map: HashMap<String, Type> = HashMap::new();
+        for (index, (_, field)) in struct_data.elements.iter().enumerate() {
+            let expr_ty = fields[index].1.get_type(self);
+            self.resolve_generic(&expr_ty, &field.ty, &mut type_map);   
+        }
+
+        let mut new_elements = HashMap::new();
+        let mut offset = 0;
+        for (field_name, field_data) in struct_data.elements.iter() {
+            let ty =  self.generic_to_ty(&field_data.ty, &type_map);
+            let new_field = StructField {
+                ty: ty.clone(),
+                offset: offset,
+                name: field_data.name.clone(),
+            };
+            offset += self.type_size(&ty);
+            new_elements.insert(field_name.clone(), new_field);
+        }
+
+        let type_args: Vec<String> = struct_data
+            .generic_type
+            .iter()
+            .map(|param| type_map.get(param).map(type_name).unwrap_or(param.clone()))
+            .collect();
+        let name = format!("{}__{}", struct_data.name, type_args.join("_"));
+
+        // Register if not already monomorphized
+        if !self.structs.contains_key(&name) {
+            let new_data = StructData {
+                name: name.clone(),
+                generic_type: Vec::new(),
+                elements: new_elements,
+                byte_size: offset,
+            };
+            self.structs.insert(name.clone(), new_data);
+        }
+
+        name
+    }
+
     fn gen_expr_struct_init(
         &mut self,
         fields: &Vec<(String, Expr)>,
         struct_name: &String,
     ) -> String {
-        let struct_data = self
+        let mut struct_data = self
             .structs
             .get(struct_name)
             .expect("Unknown struct")
             .clone();
+        if struct_data.generic_type.len() > 0 {
+            let name = self.gen_generic_struct(fields, struct_name);
+            struct_data = self.structs.get(&name).unwrap().clone();
+        }
         let base_pos = self.stack_pos;
-
         for (field_name, field_expr) in fields {
+            println!("f_name: {:?}",field_name);
             let field = struct_data.elements.get(field_name).expect("Unknown field");
             let field_type = &field.ty;
-            self.eval_expr(field_expr, field_type); // ← field_type not expected_type
+            self.eval_expr(field_expr, field_type);
             let sized_reg = reg_for_size("rax", field_type).unwrap();
             let size_word = get_word(field_type);
             let field_pos = base_pos - field.offset;
-            self.emit_to_func(format!(
-                "    mov {} [rbp - {}], {}",
-                size_word, field_pos, sized_reg
-            ));
+            //match field_type {
+            //    Type::Array(.. ) => {},
+            //    _ => {
+            //        self.emit_to_func(format!(
+            //            "    mov {} [rbp - {}], {}",
+            //            size_word, field_pos, sized_reg
+            //        ));
+            //    }
+            //}
         }
         "rax".to_string()
     }
@@ -412,12 +510,23 @@ impl Gen {
             Expr::Variable(var_name) => {
                 // . operator: compile-time offset
                 let var = self.lookup_var(var_name);
-                let field_addr = var.stack_pos - field.offset;
                 let reg = reg_for_size("rax", &field.ty).unwrap();
-                self.emit_to_func(format!(
-                    "    mov {}, {} [rbp - {}]",
-                    reg, size_word, field_addr
-                ));
+                match var.var_type {
+                    Type::Primitive(..) => {
+                        let field_addr = var.stack_pos - field.offset;
+                        self.emit_to_func(format!(
+                            "    mov {}, {} [rbp - {}]",
+                            reg, size_word, field_addr
+                        ));
+                    }
+                    _ => {
+                        let field_addr = var.stack_pos;
+                        self.emit_to_func(format!(
+                            "    lea {}, {} [rbp - {}]",
+                            reg, size_word, field_addr
+                        ));
+                    }
+                }
             }
             _ => {
                 // chained a.b.c — runtime fallback
@@ -504,7 +613,6 @@ impl Gen {
         self.eval_expr(base, arr_ty);
         self.push_result();
         self.eval_expr(index, &Type::Primitive(TokenType::LongType));
-
         //runtime checking
         match arr_ty {
             Type::Array(ty, size) => {
@@ -608,52 +716,50 @@ impl Gen {
         variant: &String,
     ) -> String {
         let field_data = enum_data.variants.get(variant).unwrap().clone();
-        
-        // figure out type substitution from the provided values
+
         let mut type_map: HashMap<String, Type> = HashMap::new();
-        for (index, arg) in field_data.args.iter().enumerate() {
-            if let Type::GenericType(param_name) = &arg.ty {
+        for (name, field) in enum_data.variants.iter() {
+            for (index,enum_field) in field.args.iter().enumerate() {
                 let expr_ty = values[index].expr.get_type(self);
-                type_map.insert(param_name.clone(), expr_ty);
+                self.resolve_generic(&expr_ty, &enum_field.ty, &mut type_map);   
             }
         }
-        
-        // build new variants with substituted types
+
         let mut new_variants = HashMap::new();
         for (var_name, var_data) in enum_data.variants.iter() {
-            let new_args: Vec<StructField> = var_data.args.iter().map(|arg| {
-                StructField {
-                    ty: match &arg.ty {
-                        Type::GenericType(name) => {
-                            type_map.get(name).cloned().unwrap_or(arg.ty.clone())
-                        }
-                        _ => arg.ty.clone(),
-                    },
+            let new_args: Vec<StructField> = var_data
+                .args
+                .iter()
+                .map(|arg| StructField {
+                    ty: self.generic_to_ty(&arg.ty, &type_map),
                     ..arg.clone()
-                }
-            }).collect();
-            new_variants.insert(var_name.clone(), EnumVariant {
-                args: new_args,
-                ..var_data.clone()
-            });
+                })
+                .collect();
+            new_variants.insert(
+                var_name.clone(),
+                EnumVariant {
+                    args: new_args,
+                    ..var_data.clone()
+                },
+            );
         }
-        
-        // build mangled name like Option__int
-        let type_args: Vec<String> = enum_data.generic_type.iter()
+
+        let type_args: Vec<String> = enum_data
+            .generic_type
+            .iter()
             .map(|param| type_map.get(param).map(type_name).unwrap_or(param.clone()))
             .collect();
         let name = format!("{}__{}", enum_data.name, type_args.join("_"));
-        
+
         let new_data = EnumData {
             name: name.clone(),
             generic_type: Vec::new(),
             variants: new_variants,
         };
-        // register if not already done
         if !self.enums.contains_key(&name) {
             self.enums.insert(name.clone(), new_data);
         }
-        
+
         name
     }
 
@@ -675,42 +781,41 @@ impl Gen {
             base = self.handle_generic_enum(&enum_data, value, variant);
         }
         let variant_data = enum_data
-        .variants
-        .get(variant)
-        .expect(&format!("in enum {} no field {}", base, variant));
-    if !value.is_empty() {
-        self.emit_to_func(format!("    mov rax, {}", variant_data.tag));
-        self.emit_to_func(format!("    mov [rbp - {}], rax", pos));
-        // this reserves space for tag
-        self.stack_pos -= 8;
-        for (index, var) in variant_data.args.clone().iter().enumerate() {
-            let res = &value[index];
-            let mut var_ty = var.ty.clone();
-            match var.ty {
-                Type::GenericType(_) => {
-                    var_ty = res.expr.get_type(self);
+            .variants
+            .get(variant)
+            .expect(&format!("in enum {} no field {}", base, variant));
+        if !value.is_empty() {
+            self.emit_to_func(format!("    mov rax, {}", variant_data.tag));
+            self.emit_to_func(format!("    mov [rbp - {}], rax", pos));
+            // this reserves space for tag
+            self.stack_pos -= 8;
+            for (index, var) in variant_data.args.clone().iter().enumerate() {
+                let res = &value[index];
+                let mut var_ty = var.ty.clone();
+                match var.ty {
+                    Type::GenericType(_) => {
+                        var_ty = res.expr.get_type(self);
+                    }
+                    _ => {}
                 }
-                _ => {},
-            }
-            self.eval_expr(&res.expr, &var_ty);
-            let reg = reg_for_size("rax", &var_ty).unwrap();
-            let word = get_word(&var_ty);
-            match &var_ty {
-                Type::Primitive(_) => {
-                    self.emit_to_func(format!(
-                        "    mov {} [rbp - {}], {}",
-                        word,
-                        self.stack_pos - var.offset,
-                        reg
-                    ));
+                self.eval_expr(&res.expr, &var_ty);
+                let reg = reg_for_size("rax", &var_ty).unwrap();
+                let word = get_word(&var_ty);
+                match &var_ty {
+                    Type::Primitive(_) | Type::Array(..) => {
+                        self.emit_to_func(format!(
+                            "    mov {} [rbp - {}], {}",
+                            word,
+                            self.stack_pos - var.offset,
+                            reg
+                        ));
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-            
-        }
-        self.emit_to_func(format!("    mov rax, [rbp - {pos}]"));
-        // returns space
-        self.stack_pos += 8;
+            // returns space
+            self.emit_to_func(format!("    mov rax, [rbp - {pos}]"));
+            self.stack_pos += 8;
             return "rax".to_string();
         }
         // else we just want to get tag of this enum variant

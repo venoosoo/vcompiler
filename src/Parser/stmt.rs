@@ -171,7 +171,11 @@ impl<'a> Parser<'a> {
                 variants: variants.clone(),
             },
         );
-        return Some(Stmt::InitEnum { name, variants, generic_types: generic });
+        return Some(Stmt::InitEnum {
+            name,
+            variants,
+            generic_types: generic,
+        });
     }
 
     fn parse_global(&mut self) -> Option<Stmt> {
@@ -263,11 +267,10 @@ impl<'a> Parser<'a> {
                 }
             }
             self.consume();
-            return Type::GenericInst(type_name(&ty), res)
+            return Type::GenericInst(type_name(&ty), res);
         } else {
-            return  ty;
+            return ty;
         }
-    
     }
 
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
@@ -346,7 +349,7 @@ impl<'a> Parser<'a> {
 
             let mut ty = if self.is_type(&base_token) && base_token.token != TokenType::Var {
                 Type::Primitive(base_token.token)
-            } else if let Some(res) = self.get_custom_type(&base_token.value.unwrap()) {
+            } else if let Some(res) = self.get_custom_type(&base_token.value.clone().unwrap()) {
                 res
             } else {
                 panic!("Expected type in struct field");
@@ -384,7 +387,6 @@ impl<'a> Parser<'a> {
         // register struct in type table
         self.types.insert(struct_name.clone());
         self.struct_table.insert(struct_name.clone(), def.clone());
-
         Some(Stmt::InitStruct(def))
     }
 

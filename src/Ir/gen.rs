@@ -39,6 +39,8 @@ pub struct FuncData {
 
 #[derive(Debug, Clone)]
 pub struct StructData {
+
+    // TODO: make this vec because we need order
     pub elements: HashMap<String, StructField>,
     pub name: String,
     pub generic_type: Vec<String>,

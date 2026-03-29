@@ -170,7 +170,10 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn check_init_func(&mut self, data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>, &Vec<String>)) {
+    pub fn check_init_func(
+        &mut self,
+        data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>, &Vec<String>),
+    ) {
         let (name, args, ret_type, body, generic_types) = data;
 
         if self.functions.get(name).is_none() {
@@ -322,7 +325,7 @@ impl<'a> Analyzer<'a> {
                 data,
                 generic_types,
             } => {
-                self.check_init_func((name, args, ret_type, data,generic_types));
+                self.check_init_func((name, args, ret_type, data, generic_types));
             }
             Stmt::InitStruct(struct_data) => self.check_struct_init(struct_data),
             Stmt::GlobalDecl(global) => {
