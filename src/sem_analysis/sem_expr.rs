@@ -41,6 +41,7 @@ impl<'a> Lookup for Analyzer<'a> {
         }
     }
     fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type {
+        println!("expr: {:?}", ptr_expr);
         match ptr_expr.get_type(self) {
             Type::Pointer(inner) => *inner,
             _ => panic!("Cannot dereference a non-pointer"),
@@ -425,7 +426,11 @@ impl<'a> Analyzer<'a> {
             Expr::Variable(var) => self.check_var(var),
             Expr::Binary { op, left, right } => self.check_binary(op, left, right, expected_ty),
             Expr::Unary { op, expr } => self.check_unary(op, expr, expected_ty),
-            Expr::Call { name, args } => self.check_call(name, args, expected_ty),
+            Expr::Call {
+                name,
+                args,
+                generics,
+            } => self.check_call(name, args, expected_ty),
             Expr::StructInit {
                 struct_name_ty,
                 fields,

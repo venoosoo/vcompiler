@@ -116,7 +116,7 @@ pub fn arg_pos(pos: usize, ty: &Type) -> String {
             TokenType::LongType => 8,
             _ => panic!("unsupported primitive type in arg_pos: {:?}", token),
         },
-        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => panic!("unkown type"),
+        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => panic!("unkown type: {:?}",ty),
         Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
     };
 
@@ -196,9 +196,12 @@ impl Gen {
             structs: HashMap::new(),
             functions: HashMap::new(),
             out: String::new(),
-            generics: HashSet::new(),
+            generics: HashMap::new(),
             highest_stack_pos: 0,
+            func_header: String::new(),
             func_out: String::new(),
+            generic_func: HashMap::new(),
+            func_data: String::new(),
             global_vars: HashMap::new(),
             enums: HashMap::new(),
             id: 0,
@@ -209,7 +212,15 @@ impl Gen {
         let _ = writeln!(self.out, "{}", s);
     }
 
-    fn emit_to_func(&mut self, s: String) {
+    fn emit_func_header(&mut self, s: String) {
+        let _ = writeln!(self.func_header, "{}", s);
+    }
+
+    fn emit_func_data(&mut self, s: String) {
+        let _ = writeln!(self.func_data, "{}", s);
+    }
+
+    fn emit_func(&mut self, s: String) {
         let _ = writeln!(self.func_out, "{}", s);
     }
 
@@ -300,8 +311,19 @@ impl Gen {
                 } => {
                     let func_data = FuncData {
                         args: args.clone(),
+                        generic: generic_types.clone(),
                         return_type: ret_type.clone(),
                     };
+                    if generic_types.len() > 0 {
+                        let suka = Stmt::InitFunc {
+                            name: name.clone(),
+                            generic_types: generic_types.clone(),
+                            args: args.clone(),
+                            ret_type: ret_type.clone(),
+                            data: data.clone(),
+                        };
+                        self.generic_func.insert(name.clone(), suka);
+                    }
                     self.functions
                         .entry(name.clone())
                         .or_insert_with(Vec::new)

@@ -1,9 +1,4 @@
-use std::collections::HashMap;
-
-use crate::{
-    Ir::{Stmt, stmt::Type},
-    Tokenizer::Token,
-};
+use crate::Ir::{Stmt, stmt::Type};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -24,6 +19,7 @@ pub enum Expr {
 
     Call {
         name: String,
+        generics: Vec<Type>,
         args: Vec<Expr>,
     },
 

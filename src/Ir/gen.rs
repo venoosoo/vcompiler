@@ -20,9 +20,12 @@ pub struct Gen {
     pub main_code: Vec<String>,
     pub data_code: Vec<String>,
     pub highest_stack_pos: usize,
-    pub generics: HashSet<String>,
+    pub generic_func: HashMap<String, Stmt>,
+    pub generics: HashMap<String, Type>,
     pub scopes: Vec<HashMap<String, VarData>>,
     pub global_vars: HashMap<String, VarData>,
+    pub func_header: String,
+    pub func_data: String,
     pub func_out: String,
     pub structs: HashMap<String, StructData>,
     pub functions: HashMap<String, Vec<FuncData>>,
@@ -33,13 +36,13 @@ pub struct Gen {
 #[derive(Debug, Clone)]
 pub struct FuncData {
     pub args: Vec<Declaration>,
+    pub generic: Vec<String>,
     // return type and pointer depth
     pub return_type: Type,
 }
 
 #[derive(Debug, Clone)]
 pub struct StructData {
-
     // TODO: make this vec because we need order
     pub elements: HashMap<String, StructField>,
     pub name: String,

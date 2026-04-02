@@ -67,12 +67,6 @@ impl<'a> Parser<'a> {
                 Expr::AddressOf(Box::new(rhs))
             }
 
-            TokenType::OpenParen => {
-                let expr = self.parse_expr();
-                self.expect(TokenType::CloseParen);
-                expr
-            }
-
             TokenType::Not => {
                 let rhs = self.parse_primary();
                 Expr::Unary {
@@ -226,6 +220,42 @@ impl<'a> Parser<'a> {
                     };
                 }
 
+                TokenType::Less => {
+                    if self.is_type(self.peek(1)) {
+                        let mut generics = Vec::new();
+                        self.consume();
+                        while self.peek(0).token != TokenType::More {
+                            let ty = self.get_type();
+                            let ty = self.parse_ptr(ty);
+                            let ty = self.parse_array(ty);
+                            generics.push(ty);
+                            if self.peek(0).token == TokenType::Coma {
+                                self.consume();
+                            }
+                        }
+                        self.consume();
+                        let mut args: Vec<Expr> = Vec::new();
+                        if self.peek(0).token != TokenType::CloseParen {
+                            self.consume();
+                            loop {
+                                if self.peek(0).token == TokenType::CloseParen {
+                                    break;
+                                }
+                                args.push(self.parse_expr());
+                                self.expect(TokenType::Coma);
+                            }
+                        }
+                        self.expect(TokenType::CloseParen);
+                        expr = Expr::Call {
+                            generics: generics,
+                            name: self.expr_to_ident(expr),
+                            args,
+                        };
+                    } else {
+                        break;
+                    }
+                }
+
                 TokenType::OpenParen => {
                     self.consume();
                     let mut args: Vec<Expr> = Vec::new();
@@ -240,6 +270,7 @@ impl<'a> Parser<'a> {
                     }
                     self.expect(TokenType::CloseParen);
                     expr = Expr::Call {
+                        generics: Vec::new(),
                         name: self.expr_to_ident(expr),
                         args,
                     };

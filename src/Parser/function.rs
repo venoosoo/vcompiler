@@ -33,6 +33,8 @@ impl<'a> Parser<'a> {
             let ty = self.get_type();
             let ty = self.parse_ptr(ty);
             let ty = self.parse_array(ty);
+            let ty = self.parse_generic_types(ty);
+
             ret_type = ty;
         }
         let data = Box::new(

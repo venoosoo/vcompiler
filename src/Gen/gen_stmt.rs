@@ -59,7 +59,7 @@ impl Gen {
         if self.structs.contains_key(&mangled) {
             return Type::Struct(mangled.clone()); // already done
         }
-        
+
         // substitute types in fields and recompute offsets
         let mut offset = 0;
         let fields: Vec<StructField> = def
@@ -86,7 +86,6 @@ impl Gen {
                 byte_size: offset, // total size
             },
         );
-        println!("suka: {:?}",self.structs);
         return Type::Struct(mangled);
     }
 
@@ -170,12 +169,17 @@ impl Gen {
 
     fn gen_declaration(&mut self, data: &Declaration) {
         let data_ty = self.ensure_monomorphized(&data.ty);
+        let data_ty = match data_ty {
+            Type::GenericType(name) => self.generics.get(&name).unwrap().clone(),
+            _ => data_ty,
+        };
+
         let stack_pos = self.alloc_type(&data_ty);
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
             self::panic!("Variable already declared in this scope");
         }
-        
+
         let var_data = VarData {
             global_flag: false,
             stack_pos,
@@ -186,10 +190,10 @@ impl Gen {
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data_ty);
             match data_ty.clone() {
-                Type::Primitive(_) | Type::Pointer(_) => {
+                Type::Primitive(_) | Type::Pointer(_) | Type::Struct(_) => {
                     let size_word = get_word(&data_ty);
                     let sized_reg = reg_for_size("rax", &data_ty).unwrap();
-                    self.emit_to_func(format!(
+                    self.emit_func_data(format!(
                         "    mov {} [rbp - {}], {}",
                         size_word, stack_pos, sized_reg
                     ));
@@ -198,7 +202,7 @@ impl Gen {
                     Type::Primitive(TokenType::CharType) => {
                         let size_word = get_word(&data_ty);
                         let sized_reg = reg_for_size("rax", &data_ty).unwrap();
-                        self.emit_to_func(format!(
+                        self.emit_func_data(format!(
                             "    mov {} [rbp - {}], {}",
                             size_word, stack_pos, sized_reg
                         ));
@@ -229,10 +233,10 @@ impl Gen {
                             // load pointer value into rsi, then deref
                             match &addr {
                                 Addr::Stack(pos) => {
-                                    self.emit_to_func(format!("    mov rsi, [rbp - {}]", pos));
+                                    self.emit_func_data(format!("    mov rsi, [rbp - {}]", pos));
                                 }
                                 Addr::Reg(reg) => {
-                                    self.emit_to_func(format!("    mov rsi, [{}]", reg));
+                                    self.emit_func_data(format!("    mov rsi, [{}]", reg));
                                 }
                             }
 
@@ -244,7 +248,7 @@ impl Gen {
                                 .get(name)
                                 .unwrap()
                                 .clone();
-                            self.emit_to_func(format!("    add rsi, {}", field.offset));
+                            self.emit_func_data(format!("    add rsi, {}", field.offset));
                             (Addr::Reg("rsi".to_string()), field.ty.clone())
                         }
                         _ => self::panic!("field access on non-struct pointer"),
@@ -266,7 +270,7 @@ impl Gen {
 
                             Addr::Reg(reg) => {
                                 // subtract offset from register base address
-                                self.emit_to_func(format!("    add {}, {}", reg, field.offset));
+                                self.emit_func_data(format!("    add {}, {}", reg, field.offset));
                                 (Addr::Reg(reg), field_type)
                             }
                         }
@@ -282,10 +286,10 @@ impl Gen {
                     Type::Pointer(inner_ty) => {
                         match &addr {
                             Addr::Stack(pos) => {
-                                self.emit_to_func(format!("    mov rsi, [rbp - {}]", pos));
+                                self.emit_func_data(format!("    mov rsi, [rbp - {}]", pos));
                             }
                             Addr::Reg(reg) => {
-                                self.emit_to_func(format!("    mov rsi, [{}]", reg));
+                                self.emit_func_data(format!("    mov rsi, [{}]", reg));
                             }
                         }
                         (Addr::Reg("rsi".to_string()), *inner_ty)
@@ -298,10 +302,10 @@ impl Gen {
                 let index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
                     Type::Array(ty, size) => {
-                        self.emit_to_func(format!("    cmp {}, {}", index_reg, size));
-                        self.emit_to_func(format!("    jge __bounds_fail__"));
-                        self.emit_to_func(format!("    cmp {}, 0", index_reg));
-                        self.emit_to_func(format!("    jl __bounds_fail__"));
+                        self.emit_func_data(format!("    cmp {}, {}", index_reg, size));
+                        self.emit_func_data(format!("    jge __bounds_fail__"));
+                        self.emit_func_data(format!("    cmp {}, 0", index_reg));
+                        self.emit_func_data(format!("    jl __bounds_fail__"));
                     }
                     _ => {}
                 }
@@ -312,7 +316,7 @@ impl Gen {
                     Type::Primitive(TokenType::CharType) => 1,
                     _ => 8, // for pointers / structs
                 };
-                self.emit_to_func(format!(
+                self.emit_func_data(format!(
                     "    lea rax, [{} + {} * {}]",
                     match addr {
                         Addr::Stack(pos) => format!("rbp - {}", pos),
@@ -333,7 +337,7 @@ impl Gen {
         match addr {
             Addr::Stack(pos) => {
                 let size_word = get_word(&ty);
-                self.emit_to_func(format!(
+                self.emit_func_data(format!(
                     "    mov {} [rbp - {}], {}",
                     size_word, pos, sized_reg
                 ));
@@ -342,7 +346,7 @@ impl Gen {
                 let size_word = get_word(&ty);
 
                 let sized_reg = reg_for_size(&val_reg, &ty).unwrap();
-                self.emit_to_func(format!("    mov {} [{}], {}", size_word, reg, sized_reg));
+                self.emit_func_data(format!("    mov {} [{}], {}", size_word, reg, sized_reg));
             }
         }
     }
@@ -351,35 +355,35 @@ impl Gen {
         let (condition, if_block, else_block) = data;
 
         self.eval_expr(condition, &Type::Primitive(TokenType::LongType));
-        self.emit_to_func(format!("    cmp rax, 0"));
+        self.emit_func_data(format!("    cmp rax, 0"));
 
         let id = self.get_id();
 
         if let Some(else_stmt) = else_block {
-            self.emit_to_func(format!("    je else_{}", id));
-            self.emit_to_func(format!("if_{}:", id));
+            self.emit_func_data(format!("    je else_{}", id));
+            self.emit_func_data(format!("if_{}:", id));
             self.gen_stmt(if_block);
-            self.emit_to_func(format!("    jmp end_if_{}", id));
-            self.emit_to_func(format!("else_{}:", id));
+            self.emit_func_data(format!("    jmp end_if_{}", id));
+            self.emit_func_data(format!("else_{}:", id));
             self.gen_stmt(else_stmt);
         } else {
-            self.emit_to_func(format!("    je end_if_{}", id));
-            self.emit_to_func(format!("if_{}:", id));
+            self.emit_func_data(format!("    je end_if_{}", id));
+            self.emit_func_data(format!("if_{}:", id));
             self.gen_stmt(if_block);
         }
-        self.emit_to_func(format!("end_if_{}:", id));
+        self.emit_func_data(format!("end_if_{}:", id));
     }
 
     pub fn gen_while(&mut self, data: (&Expr, &Box<Stmt>)) {
         let (condition, body) = data;
         let id = self.get_id();
-        self.emit_to_func(format!("while_{}:", id));
+        self.emit_func_data(format!("while_{}:", id));
         self.eval_expr(condition, &Type::Primitive(TokenType::LongType));
-        self.emit_to_func(format!("    cmp rax, 0"));
-        self.emit_to_func(format!("    je end_while_{}", id));
+        self.emit_func_data(format!("    cmp rax, 0"));
+        self.emit_func_data(format!("    je end_while_{}", id));
         self.gen_stmt(&*body);
-        self.emit_to_func(format!("    jmp while_{}", id));
-        self.emit_to_func(format!("end_while_{}:", id));
+        self.emit_func_data(format!("    jmp while_{}", id));
+        self.emit_func_data(format!("end_while_{}:", id));
     }
 
     pub fn gen_for(
@@ -398,12 +402,12 @@ impl Gen {
         if let Some(init_stmt) = init {
             self.gen_stmt(init_stmt);
         }
-        self.emit_to_func(format!("for_start_{}:", id));
+        self.emit_func_data(format!("for_start_{}:", id));
 
         if let Some(cond_expr) = condition {
             self.eval_expr(cond_expr, &Type::Primitive(TokenType::LongType));
-            self.emit_to_func(format!("    cmp rax, 0"));
-            self.emit_to_func(format!("    je for_end_{}", id));
+            self.emit_func_data(format!("    cmp rax, 0"));
+            self.emit_func_data(format!("    je for_end_{}", id));
         }
 
         self.gen_stmt(&body);
@@ -411,9 +415,9 @@ impl Gen {
             self.gen_stmt(update_stmt);
         }
         self.scopes.pop();
-        self.emit_to_func(format!("    jmp for_start_{}", id));
+        self.emit_func_data(format!("    jmp for_start_{}", id));
 
-        self.emit_to_func(format!("for_end_{}:", id));
+        self.emit_func_data(format!("for_end_{}:", id));
     }
 
     fn gen_ret(&mut self, expr: &Option<Expr>) {
@@ -421,9 +425,9 @@ impl Gen {
             let ret_type = self.current_return_type.clone();
             self.eval_expr(ret_expr, &ret_type); // result in rax/eax/ax/al
         }
-        self.emit_to_func("    mov rsp, rbp".to_string());
-        self.emit_to_func("    pop rbp".to_string());
-        self.emit_to_func("    ret".to_string());
+        self.emit_func_data("    mov rsp, rbp".to_string());
+        self.emit_func_data("    pop rbp".to_string());
+        self.emit_func_data("    ret".to_string());
     }
 
     pub fn gen_inline_asm(&mut self, data: &Vec<String>) {
@@ -447,7 +451,7 @@ impl Gen {
                     buf.push_str(&format!("[rbp - {}]", var.stack_pos));
                 }
             }
-            self.emit_to_func(format!("    {}", buf));
+            self.emit_func_data(format!("    {}", buf));
         }
     }
 
@@ -459,7 +463,7 @@ impl Gen {
             }
             let pos = self.alloc_type(&decl.ty);
             let reg = reg_for_size(arg_regs[i], &decl.ty).unwrap();
-            self.emit_to_func(format!("    mov [rbp - {}], {}", pos, reg));
+            self.emit_func_data(format!("    mov [rbp - {}], {}", pos, reg));
             let map = self.scopes.last_mut().unwrap();
             map.insert(
                 decl.name.clone(),
@@ -486,21 +490,24 @@ impl Gen {
 
         let struct_data = self.structs.get(&struct_name).unwrap().clone();
         let field = struct_data.elements.get(field_name).unwrap();
-        self.emit_to_func(format!("    add rax, {}", field.offset));
+        self.emit_func_data(format!("    add rax, {}", field.offset));
         field.ty.clone()
     }
 
-    pub fn gen_func(&mut self, data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>)) {
-        self.func_out.clear();
+    pub fn gen_func(
+        &mut self,
+        data: (&String, &Vec<Declaration>, &Type, &Box<Stmt>, &Vec<String>),
+    ) {
+        let saved_func_out = std::mem::take(&mut self.func_out);
+        let saved_func_data = std::mem::take(&mut self.func_data);
+        let saved_func_header = std::mem::take(&mut self.func_header);
         self.highest_stack_pos = 0;
-        let (name, args, ret_type, body) = data;
+        let (name, args, ret_type, body, generics) = data;
         self.current_return_type = ret_type.clone();
-
         // save outer scopes, start fresh with globals only
         let global_scope = self.scopes[0].clone();
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![global_scope]);
         let saved_stack = self.stack_pos;
-
         let overload_pos = self
             .functions
             .get(name)
@@ -515,30 +522,37 @@ impl Gen {
             })
             .expect(&format!("no matching overload for '{}'", name));
         if self.functions.get(name).unwrap().len() > 1 {
-            self.emit_main(format!("{}___{}:", name, overload_pos));
+            self.emit_func_header(format!("{}___{}:", name, overload_pos));
+        } else if generics.len() > 0 {
+            return;
         } else {
-            self.emit_main(format!("{}:", name));
+            self.emit_func_header(format!("{}:", name));
         }
-
         self.compile_args(args);
         self.gen_stmt(body);
 
         // restore outer scopes
         self.scopes = saved_scopes;
         self.stack_pos = saved_stack;
-
+        dbg!(ret_type);
         match ret_type {
             Type::Primitive(ty) if *ty == TokenType::Void => {
-                self.emit_to_func("    mov rsp, rbp".to_string());
-                self.emit_to_func("    pop rbp".to_string());
-                self.emit_to_func("    ret".to_string());
+                self.emit_func_data("    mov rsp, rbp".to_string());
+                self.emit_func_data("    pop rbp".to_string());
+                self.emit_func_data("    ret".to_string());
             }
             _ => {}
         }
-        self.emit_main("    push rbp".to_string());
-        self.emit_main("    mov rbp, rsp".to_string());
-        self.emit_main(format!("    sub rsp, {}", align16(self.highest_stack_pos)));
+        self.emit_func_header("    push rbp".to_string());
+        self.emit_func_header("    mov rbp, rsp".to_string());
+        self.emit_func_header(format!("    sub rsp, {}", align16(self.highest_stack_pos)));
+
+        self.emit_func(self.func_header.clone());
+        self.emit_func(self.func_data.clone());
         self.emit_main(self.func_out.clone());
+        self.func_data = saved_func_data;
+        self.func_header = saved_func_header;
+        self.func_out = saved_func_out;
     }
 
     pub fn gen_init_struct(&mut self, data: &StructDef) {
@@ -575,7 +589,11 @@ impl Gen {
                     .byte_size
             }
             Type::Enum(name) => self.enum_get_size(name),
-            Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => {
+            Type::GenericType(name) => {
+                let ty = self.generics.get(name).unwrap();
+                self.type_size(ty)
+            }
+            Type::Unknown | Type::GenericInst(..) => {
                 println!("{:?}", ty);
                 self::panic!("unkown type")
             }
@@ -615,7 +633,7 @@ impl Gen {
                     self.eval_expr(expr_data, &decl_data.ty);
                     match decl_data.ty {
                         Type::Primitive(_) | Type::Pointer(_) => {
-                            self.emit_to_func(format!("    mov [rel {}], rax", decl_data.name));
+                            self.emit_func_data(format!("    mov [rel {}], rax", decl_data.name));
                         }
                         _ => {}
                     }
@@ -660,20 +678,20 @@ impl Gen {
                     self.gen_declaration(&decl);
                     let new_var_pos = self.stack_pos;
                     // the tag size
-                    let pos = var_pos - field.offset - 8;
+                    let pos = var_pos - field.offset;
                     let reg = reg_for_size("rax", &field.ty).unwrap();
                     match field.ty {
                         Type::Primitive(_) | Type::Array(..) => {
-                            self.emit_to_func(format!("    mov {reg}, [rbp - {pos}]"));
+                            self.emit_func_data(format!("    mov {reg}, [rbp - {pos}]"));
                         }
                         Type::Unknown => {
                             self::panic!("some error");
                         }
                         _ => {
-                            self.emit_to_func(format!("    lea {reg}, [rbp - {pos}]"));
+                            self.emit_func_data(format!("    lea {reg}, [rbp - {pos}]"));
                         }
                     }
-                    self.emit_to_func(format!("    mov [rbp - {new_var_pos}], {reg}"));
+                    self.emit_func_data(format!("    mov [rbp - {new_var_pos}], {reg}"));
                 }
                 self.gen_stmt(&variant.right);
             }
@@ -687,14 +705,14 @@ impl Gen {
         match &var.left {
             MatchLeftValue::Expr { expr } => match expr {
                 Expr::Number(num) => {
-                    self.emit_to_func(format!("    cmp rax, {num}"));
-                    self.emit_to_func(format!("    je match_{}_{}", id, num));
+                    self.emit_func_data(format!("    cmp rax, {num}"));
+                    self.emit_func_data(format!("    je match_{}_{}", id, num));
                 }
                 _ => self::panic!("match field left value not supported"),
             },
             MatchLeftValue::Enum { base, value, args } => {
                 if base == "_" {
-                    self.emit_to_func(format!("    jmp match_{id}_wildcard"));
+                    self.emit_func_data(format!("    jmp match_{id}_wildcard"));
                     return;
                 }
                 let new_base = {
@@ -706,8 +724,8 @@ impl Gen {
                 let enum_data = self.enums.get(new_base).unwrap();
                 let field_data = enum_data.variants.get(value).unwrap();
                 let tag = field_data.tag;
-                self.emit_to_func(format!("    cmp rax, {}", tag));
-                self.emit_to_func(format!("    je match_{}_{}", id, tag));
+                self.emit_func_data(format!("    cmp rax, {}", tag));
+                self.emit_func_data(format!("    je match_{}_{}", id, tag));
             }
         }
     }
@@ -722,13 +740,13 @@ impl Gen {
         match &variant.left {
             MatchLeftValue::Expr { expr } => match expr {
                 Expr::Number(num) => {
-                    self.emit_to_func(format!("match_{}_{}:", id, num));
+                    self.emit_func_data(format!("match_{}_{}:", id, num));
                 }
                 _ => self::panic!("not supported"),
             },
             MatchLeftValue::Enum { base, value, args } => {
                 if base == "_" {
-                    self.emit_to_func(format!("match_{id}_wildcard:"));
+                    self.emit_func_data(format!("match_{id}_wildcard:"));
                 } else {
                     let new_base = {
                         match expr_ty {
@@ -739,33 +757,46 @@ impl Gen {
                     let enum_data = self.enums.get(new_base).unwrap();
                     let field_data = enum_data.variants.get(value).unwrap();
                     let tag = field_data.tag;
-                    self.emit_to_func(format!("match_{id}_{tag}:"));
+                    self.emit_func_data(format!("match_{id}_{tag}:"));
                 }
             }
         }
         self.scopes.push(HashMap::new());
         self.gen_match_field(&variant, expr_var_name, expr_ty);
-        self.emit_to_func(format!("    jmp match_end_{id}"));
+        self.emit_func_data(format!("    jmp match_end_{id}"));
         self.scopes.pop();
+    }
+
+    fn resolve_match_expr(
+        &mut self,
+        expr: &Expr,
+        variants: &Vec<MatchField>,
+        id: usize,
+        expr_ty: &Type,
+    ) {
+        match expr {
+            Expr::Variable(var_name) => {
+                for var in variants {
+                    self.gen_match_asm_checking(var, id, &expr_ty);
+                }
+                self.emit_func_data(format!("    jmp match_end_{id}"));
+                for var in variants {
+                    self.gen_match_asm_func(var, id, var_name, &expr_ty);
+                }
+                self.emit_func_data(format!("match_end_{}:", id));
+            }
+            Expr::Deref(deref_expr) => {
+                self.resolve_match_expr(deref_expr, variants, id, expr_ty);
+            }
+            _ => self::panic!("no supported match expr"),
+        }
     }
 
     fn gen_match(&mut self, expr: &Expr, variants: &Vec<MatchField>) {
         let id = self.get_id();
         self.eval_expr(expr, &expr.get_type(self));
         let expr_ty = expr.get_type(self);
-        match expr {
-            Expr::Variable(var_name) => {
-                for var in variants {
-                    self.gen_match_asm_checking(var, id, &expr_ty);
-                }
-                self.emit_to_func(format!("    jmp match_end_{id}"));
-                for var in variants {
-                    self.gen_match_asm_func(var, id, var_name, &expr_ty);
-                }
-                self.emit_to_func(format!("match_end_{}:", id));
-            }
-            _ => self::panic!("no supported match expr"),
-        }
+        self.resolve_match_expr(expr, variants, id, &expr_ty);
     }
 
     pub fn gen_stmt(&mut self, stmt: &Stmt) {
@@ -802,8 +833,8 @@ impl Gen {
                 ret_type,
                 data,
                 generic_types,
-            } => self.gen_func((name, args, ret_type, data)),
-            Stmt::InitStruct(struct_data) => {} // skiping because we already added it in first iteration,
+            } => self.gen_func((name, args, ret_type, data, generic_types)),
+            Stmt::InitStruct(..) => {} // skiping because we already added it in first iteration,
             Stmt::GlobalDecl(global) => self.gen_global(global.clone()),
             Stmt::InitEnum { .. } => {}
             Stmt::Match { expr, variants } => self.gen_match(expr, variants),

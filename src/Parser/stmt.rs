@@ -226,7 +226,6 @@ impl<'a> Parser<'a> {
 
     pub fn get_type(&mut self) -> Type {
         let mut pointer_depth = 0;
-
         while self.peek(0).token == TokenType::Mul {
             self.consume();
             pointer_depth += 1;
@@ -253,7 +252,7 @@ impl<'a> Parser<'a> {
         ty
     }
 
-    fn parse_generic_types(&mut self, ty: Type) -> Type {
+    pub fn parse_generic_types(&mut self, ty: Type) -> Type {
         if self.peek(0).token == TokenType::Less {
             self.consume();
             let mut res = Vec::new();
