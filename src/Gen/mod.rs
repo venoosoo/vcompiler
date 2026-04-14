@@ -9,7 +9,7 @@ use crate::Ir::r#gen::*;
 use crate::Ir::sem_analysis::Analyzer;
 use crate::Ir::stmt::Type;
 use crate::Ir::stmt::{EnumData, LValue};
-use crate::Tokenizer::TokenType;
+use crate::tokenizer::TokenType;
 
 use crate::Ir::sem_analysis::SemanticError;
 
@@ -30,8 +30,8 @@ pub fn type_name(ty: &Type) -> String {
             TokenType::Void => "void".to_string(),
             _ => format!("{:?}", token),
         },
-        Type::Pointer(inner) => format!("{}*", type_name(inner)),
-        Type::Array(inner, size) => format!("{}[{}]", type_name(inner), size),
+        Type::Pointer(inner) => format!("{}__ptr", type_name(inner)),
+        Type::Array(inner, size) => format!("{}__arr__{}", type_name(inner), size),
         Type::Struct(name) => name.clone(),
         Type::Enum(name) => name.clone(),
         Type::GenericType(name) => name.clone(),

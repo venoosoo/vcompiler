@@ -8,7 +8,7 @@ use crate::{
         sem_analysis::Analyzer,
         stmt::Type,
     },
-    Tokenizer::TokenType,
+    tokenizer::TokenType,
 };
 
 use super::*;

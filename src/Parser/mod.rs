@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crate::Ir::expr::{BinOp, Expr, UnaryOp};
-use crate::Tokenizer::{Token, TokenType};
+use crate::tokenizer::{Token, TokenType};
 
 use crate::Ir::stmt::{EnumData, EnumVariant, MatchLeftValue, Stmt, StructDef, Type};
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::Ir::expr::Expr;
-use crate::Tokenizer::TokenType;
+use crate::tokenizer::TokenType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LValue {

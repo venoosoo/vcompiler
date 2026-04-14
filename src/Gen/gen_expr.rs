@@ -37,7 +37,7 @@ impl Lookup for Gen {
     fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type {
         match ptr_expr.get_type(self) {
             Type::Pointer(inner) => *inner,
-            _ => self::panic!("Cannot dereference a non-pointer"),
+            _ => self::panic!("Cannot dereference a non-pointer: {:?}",ptr_expr.get_type(self)),
         }
     }
     fn look_addres_of(&self, var_expr: &Box<Expr>) -> Type {
@@ -361,31 +361,42 @@ impl Gen {
     }
     
 
-    fn convert_generic_args(&self, args: &Vec<Declaration>, generics: &Vec<Type>) -> Vec<Declaration> {
-        let mut new_args = Vec::new();
-        for (index, arg) in args.iter().enumerate() {
-            match &arg.ty {
-                Type::GenericInst(name, types) => {
-                    let normal_name = self.transform_generic_name(name, generics);
-                    let ty: Type;
-                    if self.structs.get(&normal_name).is_some() {
-                        ty = Type::Struct(normal_name);
-                    } else if self.enums.get(&normal_name).is_some() {
-                        ty = Type::Enum(normal_name);
-                    } else {
-                        ty = generics[index].clone();
-                    }
-                    let new_decl = Declaration {
-                        name: arg.name.clone(),
-                        ty: ty,
-                        initializer: arg.initializer.clone(),
-                    };
-                    new_args.push(new_decl);
+    fn convert_generic_arg(&self, arg: &Declaration, arg_ty: &Type, generics: &Vec<Type>, index: usize) -> Declaration {
+        match arg_ty{
+            Type::GenericInst(name, _) => {
+                let normal_name = self.transform_generic_name(name, generics);
+                let ty = if self.structs.contains_key(&normal_name) {
+                    Type::Struct(normal_name)
+                } else if self.enums.contains_key(&normal_name) {
+                    Type::Enum(normal_name)
+                } else {
+                    generics[index].clone()
+                };
+                Declaration {
+                    name: arg.name.clone(),
+                    ty,
+                    initializer: arg.initializer.clone(),
                 }
-                _ => new_args.push(arg.clone()),
             }
+            Type::Pointer(ty) => {
+                let mut decl = self.convert_generic_arg(arg, ty, generics, index);
+                decl.ty = Type::Pointer(Box::new(decl.ty));
+                decl
+            }
+            Type::Array(ty, size) => {
+                let mut decl = self.convert_generic_arg(arg, ty, generics, index);
+                decl.ty = Type::Array(Box::new(decl.ty), *size);
+                decl
+            }
+            _ => arg.clone(),
         }
-        new_args
+    }
+
+    fn convert_generic_args(&self, args: &Vec<Declaration>, generics: &Vec<Type>) -> Vec<Declaration> {
+        args.iter()
+            .enumerate()
+            .map(|(index, arg)| self.convert_generic_arg(arg, &arg.ty , generics, index))
+            .collect()
     }
 
 
@@ -414,6 +425,7 @@ impl Gen {
             let generic_data = self.generic_func.get(&name).unwrap().clone();
             let mangled = self.transform_generic_name(&name, generics);
             let new_args = self.convert_generic_args(&func_data.args, generics);
+
             let res_func_data = FuncData {
                 args: new_args.clone(),
                 generic: Vec::new(),
@@ -768,6 +780,7 @@ impl Gen {
                 _ => self::panic!("bug"),
             }
         };
+        let ty = self.ensure_monomorphized(&ty);
         let size = self.type_size(&ty);
         self.emit_func_data(format!("    mov rax, {}", size));
         "rax".to_string()
@@ -811,33 +824,15 @@ impl Gen {
         values: &Vec<EnumExprField>,
         variant: &String,
     ) -> String {
-        let field_data = enum_data.variants.get(variant).unwrap().clone();
 
         let mut type_map: HashMap<String, Type> = HashMap::new();
         for (name, field) in enum_data.variants.iter() {
-            for (index, enum_field) in field.args.iter().enumerate() {
-                let expr_ty = values[index].expr.get_type(self);
-                self.resolve_generic(&expr_ty, &enum_field.ty, &mut type_map);
+            if field.name == *variant {
+                for (index, enum_field) in field.args.iter().enumerate() {
+                    let expr_ty = values[index].expr.get_type(self);
+                    self.resolve_generic(&expr_ty, &enum_field.ty, &mut type_map);
+                }
             }
-        }
-
-        let mut new_variants = HashMap::new();
-        for (var_name, var_data) in enum_data.variants.iter() {
-            let new_args: Vec<StructField> = var_data
-                .args
-                .iter()
-                .map(|arg| StructField {
-                    ty: self.generic_to_ty(&arg.ty, &type_map),
-                    ..arg.clone()
-                })
-                .collect();
-            new_variants.insert(
-                var_name.clone(),
-                EnumVariant {
-                    args: new_args,
-                    ..var_data.clone()
-                },
-            );
         }
 
         let type_args: Vec<String> = enum_data
@@ -846,15 +841,6 @@ impl Gen {
             .map(|param| type_map.get(param).map(type_name).unwrap_or(param.clone()))
             .collect();
         let name = format!("{}__{}", enum_data.name, type_args.join("_"));
-
-        let new_data = EnumData {
-            name: name.clone(),
-            generic_type: Vec::new(),
-            variants: new_variants,
-        };
-        if !self.enums.contains_key(&name) {
-            self.enums.insert(name.clone(), new_data);
-        }
 
         name
     }
@@ -898,7 +884,7 @@ impl Gen {
                 let reg = reg_for_size("rax", &var_ty).unwrap();
                 let word = get_word(&var_ty);
                 match &var_ty {
-                    Type::Primitive(_) | Type::Array(..) => {
+                    Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) => {
                         self.emit_func_data(format!(
                             "    mov {} [rbp - {}], {}",
                             word,

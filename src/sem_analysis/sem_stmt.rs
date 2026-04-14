@@ -11,7 +11,7 @@ use crate::{
         sem_analysis::{Analyzer, ArgData, SemFuncData, SemanticError},
         stmt::{Declaration, LValue, MatchField, MatchLeftValue, StructDef, Type},
     },
-    Tokenizer::TokenType,
+    tokenizer::TokenType,
 };
 
 impl<'a> Analyzer<'a> {

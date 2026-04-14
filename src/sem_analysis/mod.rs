@@ -7,7 +7,7 @@ use crate::{
         sem_analysis::*,
         stmt::{EnumData, StructField, Type},
     },
-    Tokenizer::TokenType,
+    tokenizer::TokenType,
 };
 
 pub mod sem_expr;

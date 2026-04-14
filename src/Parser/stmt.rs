@@ -6,7 +6,7 @@ use super::*;
 use crate::Gen::type_name;
 use crate::Ir::expr::Expr;
 use crate::Ir::stmt::*;
-use crate::Tokenizer;
+use crate::tokenizer;
 
 impl<'a> Parser<'a> {
     pub fn parse_stmt(&mut self) -> Option<Stmt> {
@@ -274,8 +274,8 @@ impl<'a> Parser<'a> {
 
     pub fn parse_declaration(&mut self) -> Option<Stmt> {
         let ty = self.get_type();
-        let ty = self.parse_ptr(ty);
         let ty = self.parse_generic_types(ty);
+        let ty = self.parse_ptr(ty);
         let var_name = self.consume();
         let mut ty = self.parse_array(ty);
         let mut expr: Option<Expr> = None;
@@ -319,7 +319,7 @@ impl<'a> Parser<'a> {
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
 
-        let mut tokenizer = Tokenizer::Tokenizer::new(content);
+        let mut tokenizer = tokenizer::Tokenizer::new(content);
         tokenizer.tokenize();
 
         let mut parser = Parser::new(tokenizer.m_res, self.base_dir.clone(), self.imported_files);

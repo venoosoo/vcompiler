@@ -112,7 +112,8 @@ impl Gen {
                 .map(|arg| StructField {
                     name: arg.name.clone(),
                     ty: substitute_type(&arg.ty, &def.generic_type, type_args),
-                    offset: arg.offset,
+                    // the tag offest
+                    offset: arg.offset + 8,
                 })
                 .collect();
             new_variants.insert(
@@ -209,6 +210,21 @@ impl Gen {
                     }
                     _ => {}
                 },
+                Type::Enum(_) => {
+                    match expr {
+                        Expr::GetEnum { base, variant, value } => {
+                            if value.len() == 0 {
+                                let size_word = get_word(&data_ty);
+                                let sized_reg = reg_for_size("rax", &data_ty).unwrap();
+                                self.emit_func_data(format!(
+                                    "    mov {} [rbp - {}], {}",
+                                    size_word, stack_pos, sized_reg
+                                ));
+                            }
+                        }
+                        _ => {},
+                    }
+                }
                 _ => {} // structs/arrays already written to stack by their eval_expr
             }
         }
@@ -534,7 +550,6 @@ impl Gen {
         // restore outer scopes
         self.scopes = saved_scopes;
         self.stack_pos = saved_stack;
-        dbg!(ret_type);
         match ret_type {
             Type::Primitive(ty) if *ty == TokenType::Void => {
                 self.emit_func_data("    mov rsp, rbp".to_string());
@@ -643,6 +658,33 @@ impl Gen {
         }
     }
 
+    fn gen_match_field_arg(&mut self, var_ty: &Type, field: &StructField, reg: &String, pos: &mut usize) {
+        // the tag offset
+        *pos += 8;
+        match var_ty {
+            Type::Primitive(_) => {
+                match field.ty {
+                    Type::Primitive(_) | Type::Array(..) => {
+                        self.emit_func_data(format!("    mov {reg}, [rbp - {pos}]"));
+                    }
+                    Type::Unknown => {
+                        self::panic!("some error");
+                    }
+                    _ => {
+                        self.emit_func_data(format!("    lea {reg}, [rbp - {pos}]"));
+                    }
+                }
+            }
+            Type::Pointer(ty) => {
+                self.emit_func_data(format!("    mov rax, [rbp - {}]",pos));
+                self.emit_func_data(format!("    add rax, {}",field.offset));
+                self.emit_func_data(format!("    mov rax, [rax]"));
+                self.gen_match_field_arg(ty, field, reg, pos);
+            }
+            _ => {},
+        }
+    }
+
     fn gen_match_field(&mut self, variant: &MatchField, var_name: &String, expr_ty: &Type) {
         match &variant.left {
             MatchLeftValue::Enum { base, value, args } => {
@@ -657,6 +699,7 @@ impl Gen {
                     }
                 };
                 let var_data = self.lookup_var(var_name);
+                let var_ty = &var_data.var_type.clone();
                 let var_pos = var_data.stack_pos;
                 let enum_data = self.enums.get(new_base).unwrap().clone();
                 let field_data = enum_data.variants.get(value).unwrap();
@@ -678,19 +721,9 @@ impl Gen {
                     self.gen_declaration(&decl);
                     let new_var_pos = self.stack_pos;
                     // the tag size
-                    let pos = var_pos - field.offset;
+                    let mut pos = var_pos - field.offset;
                     let reg = reg_for_size("rax", &field.ty).unwrap();
-                    match field.ty {
-                        Type::Primitive(_) | Type::Array(..) => {
-                            self.emit_func_data(format!("    mov {reg}, [rbp - {pos}]"));
-                        }
-                        Type::Unknown => {
-                            self::panic!("some error");
-                        }
-                        _ => {
-                            self.emit_func_data(format!("    lea {reg}, [rbp - {pos}]"));
-                        }
-                    }
+                    self.gen_match_field_arg(var_ty, &field, &reg, &mut pos);
                     self.emit_func_data(format!("    mov [rbp - {new_var_pos}], {reg}"));
                 }
                 self.gen_stmt(&variant.right);

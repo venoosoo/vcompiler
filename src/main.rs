@@ -13,7 +13,8 @@ use crate::Ir::sem_analysis::Analyzer;
 mod Gen;
 mod Ir;
 mod Parser;
-mod Tokenizer;
+mod tokenizer;
+mod llvm_gen;
 mod sem_analysis;
 
 #[derive(CliParser, Debug)]
@@ -30,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
 
-    let mut tokenizer = Tokenizer::Tokenizer::new(contents);
+    let mut tokenizer = tokenizer::Tokenizer::new(contents);
     tokenizer.tokenize();
 
     println!("{}", tokenizer);
