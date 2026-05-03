@@ -191,7 +191,7 @@ impl Gen {
         if let Some(expr) = &data.initializer {
             self.eval_expr(expr, &data_ty);
             match data_ty.clone() {
-                Type::Primitive(_) | Type::Pointer(_) | Type::Struct(_) => {
+                Type::Primitive(_) | Type::Pointer(_) => {
                     let size_word = get_word(&data_ty);
                     let sized_reg = reg_for_size("rax", &data_ty).unwrap();
                     self.emit_func_data(format!(
@@ -210,21 +210,23 @@ impl Gen {
                     }
                     _ => {}
                 },
-                Type::Enum(_) => {
-                    match expr {
-                        Expr::GetEnum { base, variant, value } => {
-                            if value.len() == 0 {
-                                let size_word = get_word(&data_ty);
-                                let sized_reg = reg_for_size("rax", &data_ty).unwrap();
-                                self.emit_func_data(format!(
-                                    "    mov {} [rbp - {}], {}",
-                                    size_word, stack_pos, sized_reg
-                                ));
-                            }
+                Type::Enum(_) => match expr {
+                    Expr::GetEnum {
+                        base,
+                        variant,
+                        value,
+                    } => {
+                        if value.len() == 0 {
+                            let size_word = get_word(&data_ty);
+                            let sized_reg = reg_for_size("rax", &data_ty).unwrap();
+                            self.emit_func_data(format!(
+                                "    mov {} [rbp - {}], {}",
+                                size_word, stack_pos, sized_reg
+                            ));
                         }
-                        _ => {},
                     }
-                }
+                    _ => {}
+                },
                 _ => {} // structs/arrays already written to stack by their eval_expr
             }
         }
@@ -658,30 +660,34 @@ impl Gen {
         }
     }
 
-    fn gen_match_field_arg(&mut self, var_ty: &Type, field: &StructField, reg: &String, pos: &mut usize) {
+    fn gen_match_field_arg(
+        &mut self,
+        var_ty: &Type,
+        field: &StructField,
+        reg: &String,
+        pos: &mut usize,
+    ) {
         // the tag offset
         *pos += 8;
         match var_ty {
-            Type::Primitive(_) => {
-                match field.ty {
-                    Type::Primitive(_) | Type::Array(..) => {
-                        self.emit_func_data(format!("    mov {reg}, [rbp - {pos}]"));
-                    }
-                    Type::Unknown => {
-                        self::panic!("some error");
-                    }
-                    _ => {
-                        self.emit_func_data(format!("    lea {reg}, [rbp - {pos}]"));
-                    }
+            Type::Primitive(_) => match field.ty {
+                Type::Primitive(_) | Type::Array(..) => {
+                    self.emit_func_data(format!("    mov {reg}, [rbp - {pos}]"));
                 }
-            }
+                Type::Unknown => {
+                    self::panic!("some error");
+                }
+                _ => {
+                    self.emit_func_data(format!("    lea {reg}, [rbp - {pos}]"));
+                }
+            },
             Type::Pointer(ty) => {
-                self.emit_func_data(format!("    mov rax, [rbp - {}]",pos));
-                self.emit_func_data(format!("    add rax, {}",field.offset));
+                self.emit_func_data(format!("    mov rax, [rbp - {}]", pos));
+                self.emit_func_data(format!("    add rax, {}", field.offset));
                 self.emit_func_data(format!("    mov rax, [rax]"));
                 self.gen_match_field_arg(ty, field, reg, pos);
             }
-            _ => {},
+            _ => {}
         }
     }
 

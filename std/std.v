@@ -142,3 +142,25 @@ fn print_char(char t) {
         "add rsp, 1"
     }
 }
+
+
+enum Option<T> {
+    Some{
+        T data;
+    }
+    None,
+}
+
+
+fn unwrap<T>(Option<T>* data) -> T {
+    match *data {
+        Option::Some(data2) => {
+            return data2
+        }
+        Option::None => {
+            print("unwrap at none value");
+            exit(1);
+        }
+    }
+    exit(1);
+}

@@ -13,9 +13,9 @@ use crate::Ir::sem_analysis::Analyzer;
 mod Gen;
 mod Ir;
 mod Parser;
-mod tokenizer;
-mod llvm_gen;
+// mod llvm_gen;
 mod sem_analysis;
+mod tokenizer;
 
 #[derive(CliParser, Debug)]
 #[command(version, about, long_about = None)]

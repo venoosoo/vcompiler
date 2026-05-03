@@ -116,7 +116,9 @@ pub fn arg_pos(pos: usize, ty: &Type) -> String {
             TokenType::LongType => 8,
             _ => panic!("unsupported primitive type in arg_pos: {:?}", token),
         },
-        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => panic!("unkown type: {:?}",ty),
+        Type::Unknown | Type::GenericType(_) | Type::GenericInst(..) => {
+            panic!("unkown type: {:?}", ty)
+        }
         Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(_) => 8,
     };
 

@@ -37,7 +37,10 @@ impl Lookup for Gen {
     fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type {
         match ptr_expr.get_type(self) {
             Type::Pointer(inner) => *inner,
-            _ => self::panic!("Cannot dereference a non-pointer: {:?}",ptr_expr.get_type(self)),
+            _ => self::panic!(
+                "Cannot dereference a non-pointer: {:?}",
+                ptr_expr.get_type(self)
+            ),
         }
     }
     fn look_addres_of(&self, var_expr: &Box<Expr>) -> Type {
@@ -83,7 +86,7 @@ impl Lookup for Gen {
                     .all(|(index, expr)| check_types(&expr.get_type(self), &func.args[index].ty))
             })
             .expect(&format!("no matching overload for function '{}'", name));
-        
+
         func_data.return_type.clone()
     }
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -207,20 +210,28 @@ impl Gen {
                 self.emit_func_data(format!("    movzx {}, al", result_reg));
             }
             BinOp::And => {
+                let left_byte =
+                    reg_for_size(left_reg, &Type::Primitive(TokenType::CharType)).unwrap();
+                let right_byte =
+                    reg_for_size(right_reg, &Type::Primitive(TokenType::CharType)).unwrap();
                 self.emit_func_data(format!("    cmp {}, 0", left_reg));
-                self.emit_func_data("    setne al".to_string());
+                self.emit_func_data(format!("    setne {}", left_byte));
                 self.emit_func_data(format!("    cmp {}, 0", right_reg));
-                self.emit_func_data("    setne dl".to_string());
-                self.emit_func_data("    and al, dl".to_string());
-                self.emit_func_data(format!("    movzx {}, al", result_reg));
+                self.emit_func_data(format!("    setne {}", right_byte));
+                self.emit_func_data(format!("    and {}, {}", left_byte, right_byte));
+                self.emit_func_data(format!("    movzx {}, {}", result_reg, left_byte));
             }
             BinOp::Or => {
+                let left_byte =
+                    reg_for_size(left_reg, &Type::Primitive(TokenType::CharType)).unwrap();
+                let right_byte =
+                    reg_for_size(right_reg, &Type::Primitive(TokenType::CharType)).unwrap();
                 self.emit_func_data(format!("    cmp {}, 0", left_reg));
-                self.emit_func_data("    setne al".to_string());
+                self.emit_func_data(format!("    setne {}", left_byte));
                 self.emit_func_data(format!("    cmp {}, 0", right_reg));
-                self.emit_func_data("    setne dl".to_string());
-                self.emit_func_data("    or al, dl".to_string());
-                self.emit_func_data(format!("    movzx {}, al", result_reg));
+                self.emit_func_data(format!("    setne {}", right_byte));
+                self.emit_func_data(format!("    or {}, {}", left_byte, right_byte));
+                self.emit_func_data(format!("    movzx {}, {}", result_reg, left_byte));
             }
         }
     }
@@ -359,10 +370,15 @@ impl Gen {
         );
         mangled
     }
-    
 
-    fn convert_generic_arg(&self, arg: &Declaration, arg_ty: &Type, generics: &Vec<Type>, index: usize) -> Declaration {
-        match arg_ty{
+    fn convert_generic_arg(
+        &self,
+        arg: &Declaration,
+        arg_ty: &Type,
+        generics: &Vec<Type>,
+        index: usize,
+    ) -> Declaration {
+        match arg_ty {
             Type::GenericInst(name, _) => {
                 let normal_name = self.transform_generic_name(name, generics);
                 let ty = if self.structs.contains_key(&normal_name) {
@@ -392,13 +408,16 @@ impl Gen {
         }
     }
 
-    fn convert_generic_args(&self, args: &Vec<Declaration>, generics: &Vec<Type>) -> Vec<Declaration> {
+    fn convert_generic_args(
+        &self,
+        args: &Vec<Declaration>,
+        generics: &Vec<Type>,
+    ) -> Vec<Declaration> {
         args.iter()
             .enumerate()
-            .map(|(index, arg)| self.convert_generic_arg(arg, &arg.ty , generics, index))
+            .map(|(index, arg)| self.convert_generic_arg(arg, &arg.ty, generics, index))
             .collect()
     }
-
 
     fn gen_expr_call(
         &mut self,
@@ -418,9 +437,9 @@ impl Gen {
         }
         for (index, generic) in func_data.generic.iter().enumerate() {
             self.generics
-            .insert(generic.clone(), generics[index].clone());
+                .insert(generic.clone(), generics[index].clone());
         }
-        
+
         if func_data.generic.len() > 0 {
             let generic_data = self.generic_func.get(&name).unwrap().clone();
             let mangled = self.transform_generic_name(&name, generics);
@@ -458,7 +477,7 @@ impl Gen {
                         arg_type = Type::Enum(mangled);
                     }
                 }
-                _ => {},
+                _ => {}
             }
             let arg_reg = arg_pos(index, &arg_type);
             self.emit_func_data(format!("    pop {}", to_base_reg(&arg_reg)));
@@ -576,15 +595,16 @@ impl Gen {
             let sized_reg = reg_for_size("rax", field_type).unwrap();
             let size_word = get_word(field_type);
             let field_pos = base_pos - field.offset;
-            //match field_type {
-            //    Type::Array(.. ) => {},
-            //    _ => {
-            //        self.emit_func_data(format!(
-            //            "    mov {} [rbp - {}], {}",
-            //            size_word, field_pos, sized_reg
-            //        ));
-            //    }
-            //}
+            // can break code
+            match field_type {
+                Type::Array(..) => {}
+                _ => {
+                    self.emit_func_data(format!(
+                        "    mov {} [rbp - {}], {}",
+                        size_word, field_pos, sized_reg
+                    ));
+                }
+            }
         }
         "rax".to_string()
     }
@@ -824,7 +844,6 @@ impl Gen {
         values: &Vec<EnumExprField>,
         variant: &String,
     ) -> String {
-
         let mut type_map: HashMap<String, Type> = HashMap::new();
         for (name, field) in enum_data.variants.iter() {
             if field.name == *variant {
@@ -906,8 +925,6 @@ impl Gen {
         }
     }
 
-
-
     pub fn eval_expr(&mut self, expr: &Expr, expected_type: &Type) -> String {
         match expr {
             Expr::ArrayInit { elements } => self.gen_array_init(elements, expected_type),
@@ -930,7 +947,6 @@ impl Gen {
                 if generics.len() > 0 {
                     let vec_func_data = self.functions.get(name).unwrap().clone();
                     return self.gen_expr_call(&name, args, &vec_func_data[0], 0, generics);
-
                 }
                 let vec_func_data = self.functions.get(name).unwrap().clone();
                 let (overload_pos, func_data) = vec_func_data
