@@ -9,6 +9,7 @@ pub enum TokenType {
     Var,
     CharValue,
     Num,
+    HexNum,
     Eq,
     Add,
     Mul,
@@ -154,6 +155,19 @@ impl Tokenizer {
             } else if self.peek(0).is_numeric() {
                 let v = self.consume();
                 self.m_buf.push(v);
+
+                if self.peek(0) == 'x' {
+                    self.consume();
+                    self.m_buf.clear();
+                    while self.peek(0).is_alphanumeric() {
+                        let v = self.consume();
+                        self.m_buf.push(v);
+                    }
+                    self.push_token(TokenType::HexNum, Some(self.m_buf.clone()));
+                    self.m_buf = "".to_string();
+                    continue;
+                }
+
                 while self.peek(0).is_numeric() {
                     let v = self.consume();
                     self.m_buf.push(v);

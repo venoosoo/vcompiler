@@ -58,6 +58,10 @@ impl<'a> Parser<'a> {
             }
 
             TokenType::Num => Expr::Number(token.value.unwrap().parse().unwrap()),
+            TokenType::HexNum => {
+                let token_value = &token.value.unwrap();
+                Expr::Number(i64::from_str_radix(token_value, 16).unwrap())
+            }
             TokenType::Mul => {
                 let rhs = self.parse_primary();
                 Expr::Deref(Box::new(rhs))
