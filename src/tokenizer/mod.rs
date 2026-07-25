@@ -61,6 +61,7 @@ pub enum TokenType {
     Other,
     BitOr,
     BitXor,
+    OctalNum,
     BitNot,
     Break,
     Continue,
@@ -202,11 +203,23 @@ impl Tokenizer {
                 if self.peek(0) == 'x' {
                     self.consume();
                     self.m_buf.clear();
-                    while self.peek(0).is_alphanumeric() {
+                    while self.peek(0).is_numeric() {
                         let v = self.consume();
                         self.m_buf.push(v);
                     }
                     self.push_token(TokenType::HexNum, Some(self.m_buf.clone()));
+                    self.m_buf = "".to_string();
+                    continue;
+                }
+
+                if self.peek(0) == 'o' {
+                    self.consume();
+                    self.m_buf.clear();
+                    while self.peek(0).is_numeric() {
+                        let v = self.consume();
+                        self.m_buf.push(v);
+                    }
+                    self.push_token(TokenType::OctalNum, Some(self.m_buf.clone()));
                     self.m_buf = "".to_string();
                     continue;
                 }

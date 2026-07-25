@@ -96,6 +96,17 @@ impl<'a> Parser<'a> {
                     col: self.col,
                 }
             }
+            TokenType::OctalNum => {
+                let token_value = &token.value.unwrap();
+
+                let expr_ty = ExprType::Number(i64::from_str_radix(token_value, 8).unwrap());
+                Expr {
+                    ty: expr_ty,
+                    file: self.current_file.clone(),
+                    line: self.line,
+                    col: self.col,
+                }
+            }
             TokenType::Mul => {
                 let rhs = self.parse_primary();
                 let expr_ty = ExprType::Deref(Box::new(rhs));
