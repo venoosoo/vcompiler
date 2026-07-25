@@ -442,7 +442,7 @@ impl Gen {
         let right_reg = self.reg_for_size("rbx", &expected_type).unwrap();
 
         let left_ty = left.get_type(self);
-        let is_op_add = matches!(op,BinOp::Add);
+        let is_op_add = matches!(op, BinOp::Add);
         let right_ty = right.get_type(self);
         let left_ty = self.ensure_monomorphized(&left_ty);
         let right_ty = self.ensure_monomorphized(&right_ty);
@@ -464,7 +464,7 @@ impl Gen {
         self.eval_expr(right, expected_type);
         if is_op_add {
             if let Type::Pointer(inner_ty) = &left_ty {
-                let inner_size = self.type_size(&left_ty);
+                let inner_size = self.type_size(&inner_ty);
                 if inner_size > 1 {
                     self.emit_func_data(format!("    imul rax, rax, {}", inner_size));
                 }
@@ -474,7 +474,7 @@ impl Gen {
         self.eval_expr(left, expected_type);
         if is_op_add {
             if let Type::Pointer(inner_ty) = &right_ty {
-                let inner_size = self.type_size(&right_ty);
+                let inner_size = self.type_size(&inner_ty);
                 if inner_size > 1 {
                     self.emit_func_data(format!("    imul rax, rax, {}", inner_size));
                 }
@@ -790,13 +790,10 @@ impl Gen {
                         let map = self.generics.borrow();
                         if let Some(generic_ty) = map.get(name) {
                             generic_ty.clone()
-
                         } else if self.structs.contains_key(name) {
                             Type::Struct(name.clone())
-
                         } else if self.enums.contains_key(name) {
                             Type::Enum(name.clone(), None)
-
                         } else {
                             self::panic!(
                                 "Type resolution failed: '{}' is not a known generic, struct, or enum.",
@@ -810,7 +807,6 @@ impl Gen {
             }
             let mut map = self.generics.borrow_mut();
             map.insert(generic.clone(), generic_copy[index].clone());
-
         }
 
         let new_args = {

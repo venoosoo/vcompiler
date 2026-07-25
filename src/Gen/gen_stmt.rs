@@ -76,7 +76,7 @@ impl Gen {
 
         let current_scope = self.scopes.last_mut().unwrap();
         if current_scope.contains_key(&data.name) {
-            self::panic!("Variable {} is already defined",data.name);
+            self::panic!("Variable {} is already defined", data.name);
         }
 
         let var_data = VarData {
@@ -172,17 +172,20 @@ impl Gen {
             }
             LValue::Index { base, index } => {
                 let (addr, ty) = self.calc_lvalue(base);
-                let inner_ty = self.ensure_monomorphized(&ty);
+                let mut inner_ty = self.ensure_monomorphized(&ty);
                 self.emit_func_data(format!("    push rax")); // save expr
                 let mut index_reg = self.eval_expr(index, &ty); // evaluate index
                 match &ty {
-                    Type::Array(..) | Type::Pointer(_) => {
-                        if index_reg == "al" { index_reg = "rax".to_string() };
+                    Type::Pointer(ty) | Type::Array(ty, _) => {
+                        if index_reg == "al" {
+                            index_reg = "rax".to_string()
+                        };
                         self.emit_func_data(format!(
                             "    imul {}, {}",
                             index_reg,
-                            self.type_size(&inner_ty)
+                            self.type_size(&ty)
                         ));
+                        inner_ty = *ty.clone();
                     }
                     _ => {}
                 }
@@ -190,7 +193,7 @@ impl Gen {
                 match addr {
                     Addr::Reg(reg) => {
                         if matches!(ty, Type::Pointer(_)) {
-                            self.emit_func_data(format!("    mov rcx, QWORD [{}]", reg));
+                            self.emit_func_data(format!("    mov rcx, [{}]", reg));
                         } else {
                             self.emit_func_data(format!("    mov rcx, {}", reg));
                         }
@@ -206,7 +209,6 @@ impl Gen {
 
                 self.emit_func_data(format!("    add rcx, {}", index_reg));
                 self.emit_func_data(format!("    pop rax"));
-
                 (Addr::Reg("rcx".to_string()), inner_ty)
             }
         }
@@ -292,7 +294,7 @@ impl Gen {
             self.emit_func_data(format!("    je for_end_{}", id));
         }
         self.break_stack.push(format!("for_end_{}", id));
-        self.contniue_stack.push(format!("for_start_{}",id));
+        self.contniue_stack.push(format!("for_start_{}", id));
         self.gen_stmt(&body);
         if let Some(update_stmt) = update {
             self.gen_stmt(update_stmt);
@@ -636,7 +638,11 @@ impl Gen {
             elements.insert(field.name.clone(), field.clone());
         }
         // the generic structs size would be recomputed anyway
-        let size = if data.generic_type.len() > 0 { 0 } else { self.compute_struct_size(&data.fields) };
+        let size = if data.generic_type.len() > 0 {
+            0
+        } else {
+            self.compute_struct_size(&data.fields)
+        };
         let struct_data = StructData {
             name: data.name.clone(),
             generic_type: data.generic_type.clone(),
@@ -971,12 +977,12 @@ impl Gen {
 
     fn gen_break(&mut self) {
         let path = self.break_stack.last().unwrap();
-        self.emit_func_data(format!("    jmp {}",path));
+        self.emit_func_data(format!("    jmp {}", path));
     }
 
     fn gen_contniue(&mut self) {
         let path = self.contniue_stack.last().unwrap();
-        self.emit_func_data(format!("    jmp {}",path));
+        self.emit_func_data(format!("    jmp {}", path));
     }
 
     pub fn gen_stmt(&mut self, stmt: &Stmt) {

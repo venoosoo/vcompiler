@@ -1,5 +1,9 @@
 use std::{
-    cell::Cell, collections::HashMap, dbg, env::var, fmt::{self, write},
+    cell::Cell,
+    collections::HashMap,
+    dbg,
+    env::var,
+    fmt::{self, write},
 };
 
 use indexmap::IndexMap;
@@ -400,7 +404,7 @@ impl<'a> Analyzer<'a> {
             Type::GenericType(name) => {
                 // TODO: make the self.generic the same as in gen and fix this
                 8
-            },
+            }
             Type::Enum(..) => 8,
             Type::Unknown => panic!("unkown type"),
         }

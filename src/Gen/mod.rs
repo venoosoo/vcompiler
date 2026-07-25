@@ -1,9 +1,9 @@
 use core::panic;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::{dbg, matches};
 use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Write};
+use std::{dbg, matches};
 
 use crate::Ir::Stmt;
 use crate::Ir::expr::{Expr, ExprType, Lookup};
@@ -48,7 +48,6 @@ impl TypeContext for Gen {
                     let param_ty = self.ensure_monomorphized(param_ty);
                     let expr_ty = {
                         if matches!(expr_ty, Type::GenericType(_)) {
-
                             let map = self.generics.borrow();
                             self.generic_to_ty(&expr_ty, &map)
                         } else {

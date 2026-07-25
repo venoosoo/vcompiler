@@ -1,7 +1,7 @@
 use core::panic;
-use std::{backtrace, env};
 use std::fs::File;
 use std::io::Read;
+use std::{backtrace, env};
 
 use super::*;
 use crate::Ir::expr::{Expr, ExprType};
@@ -404,7 +404,7 @@ impl<'a> Parser<'a> {
         for mut path in search_paths {
             path.push(filename);
             if path.exists() {
-                return Some(path.canonicalize().unwrap()); 
+                return Some(path.canonicalize().unwrap());
             }
         }
 
@@ -419,23 +419,24 @@ impl<'a> Parser<'a> {
         let token = self.consume();
         let full_path = if token.token == TokenType::String {
             let file_name = token.value.unwrap();
-            
+
             self.base_dir
                 .join(&file_name)
                 .canonicalize()
                 .expect(&format!("Cannot find local import: {}", file_name))
-                
         } else if token.token == TokenType::Less {
             let file_name_token = self.consume();
             let file_name = file_name_token.value.expect("Expected filename inside <>");
-            
-            self.expect(TokenType::More); 
-            
+
+            self.expect(TokenType::More);
+
             self.resolve_global_import(&file_name)
                 .expect(&format!("Cannot find global import: {}", file_name))
-                
         } else {
-            panic!("Expected string or '<' after import, found {:?}", token.token);
+            panic!(
+                "Expected string or '<' after import, found {:?}",
+                token.token
+            );
         };
         let canonical_str = full_path.to_str().unwrap().to_string();
         if self.imported_files.contains(&canonical_str) {
