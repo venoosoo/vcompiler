@@ -12,7 +12,7 @@ impl<'a> Parser<'a> {
                 StmtType::Declaration(decl) => {
                     res.push(decl);
                 }
-                _ => panic!("wrong args"),
+                _ => self::panic!("wrong args"),
             }
             if self.peek(0).token == TokenType::Coma {
                 self.consume();

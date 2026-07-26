@@ -1,9 +1,10 @@
 use std::env::Args;
+use std::vec;
 
 use crate::Ir::expr::{EnumExprField, ExprType, Lookup};
 use crate::Ir::sem_analysis::SemanticError;
 use crate::Ir::stmt::Declaration;
-use crate::shared::{coerce_numeric, is_number, is_numeric, same_signedness};
+use crate::shared::{build_generic_map, coerce_numeric, is_number, is_numeric, same_signedness};
 use crate::{
     Ir::{
         expr::{BinOp, Expr, UnaryOp},
@@ -40,13 +41,13 @@ impl<'a> Lookup for Analyzer<'a> {
         if let Some(_struct_data) = self.structs.get(struct_name) {
             Type::Struct(struct_name.clone())
         } else {
-            panic!("Struct {} not found in get_type", struct_name);
+            self::panic!("Struct {} not found in get_type", struct_name);
         }
     }
     fn look_deref(&self, ptr_expr: &Box<Expr>) -> Type {
         match ptr_expr.get_type(self) {
             Type::Pointer(inner) => *inner,
-            _ => panic!("Cannot dereference a non-pointer"),
+            _ => self::panic!("Cannot dereference a non-pointer"),
         }
     }
     fn look_addres_of(&self, var_expr: &Box<Expr>) -> Type {
@@ -57,12 +58,12 @@ impl<'a> Lookup for Analyzer<'a> {
         let base_ty = base.get_type(self);
         let idx_ty = index.get_type(self);
         if !is_numeric(&idx_ty) {
-            panic!("Array index must be integer");
+            self::panic!("Array index must be integer");
         }
         match base_ty {
             Type::Array(elem_ty, _) => *elem_ty,
             Type::Pointer(elem_ty) => *elem_ty,
-            _ => panic!("Cannot index into non-array type"),
+            _ => self::panic!("Cannot index into non-array type"),
         }
     }
     fn look_struct_member(&self, base: &Box<Expr>, name: &String) -> Type {
@@ -72,18 +73,69 @@ impl<'a> Lookup for Analyzer<'a> {
             Type::Struct(n) => n.clone(),
             Type::Pointer(inner) => match inner.as_ref() {
                 Type::Struct(n) => n.clone(),
-                _ => panic!("pointer to non-struct"),
+                _ => self::panic!("pointer to non-struct"),
             },
-            _ => panic!("member access on non-struct {:?}", base_ty),
+            _ => self::panic!("member access on non-struct {:?}", base_ty),
         };
         let struct_data = self.structs.get(&struct_name).unwrap();
         let field = struct_data.elements.get(name).unwrap();
         field.ty.clone()
     }
     fn look_call(&self, name: &String, args: &Vec<Expr>, generics: &Vec<Type>) -> Type {
-        // TODO: do this properly
-        let func_data = self.functions.get(name).unwrap();
-        func_data[0].return_type.clone()
+        let func_name = name.clone();
+
+        let vec_func_data: Vec<FuncData> = if generics.len() > 0 {
+            let new_name = self.transform_generic_name(&func_name, generics);
+            if let Some(existing) = self.functions.get(&new_name) {
+                existing.clone()
+            } else {
+                let func_data = self.functions.get(&func_name).unwrap()[0].clone();
+                let generic_map = build_generic_map(func_data.generic.clone(), generics.clone());
+                {
+                    *self.generics.borrow_mut() = generic_map.clone();
+                }
+                let new_args: Vec<Declaration> =
+                    self.convert_generic_args(&func_data.args, generics, &generic_map);
+
+                let ret_type: Type = match &func_data.return_type {
+                    Type::GenericType(name) => {
+                        let pos = func_data
+                            .generic
+                            .iter()
+                            .position(|g| g == name)
+                            .expect(&format!("non existing generic var: {}", name));
+                        generics[pos].clone()
+                    }
+                    _ => func_data.return_type.clone(),
+                };
+                vec![FuncData {
+                    args: new_args,
+                    generic: Vec::new(),
+                    return_type: ret_type,
+                }]
+            }
+        } else {
+            self.functions.get(&func_name).unwrap().clone()
+        };
+
+        let func_data = vec_func_data
+            .iter()
+            .find(|func| {
+                if func.args.len() != args.len() {
+                    return false;
+                }
+                args.iter().enumerate().all(|(index, expr)| {
+                    let expr_ty = self.resolve_generic_inst(&expr.get_type(self));
+                    let arg_ty = self.resolve_generic_inst(&func.args[index].ty);
+                    check_types(&expr_ty, &arg_ty)
+                })
+            })
+            .expect(&format!(
+                "no matching overload for function '{}'",
+                func_name
+            ));
+
+        func_data.return_type.clone()
     }
 
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -126,7 +178,7 @@ impl<'a> Analyzer<'a> {
                 } else if self.enums.contains_key(&mangled) {
                     Type::Enum(mangled, None)
                 } else {
-                    panic!("GenericInst not yet monomorphized: {:?}", ty)
+                    self::panic!("GenericInst not yet monomorphized: {:?}", ty)
                 }
             }
             Type::Pointer(inner) => Type::Pointer(Box::new(self.resolve_generic_inst(inner))),
@@ -326,57 +378,56 @@ impl<'a> Analyzer<'a> {
         mangled
     }
 
+    fn resolve_type_with_map(&self, ty: &Type, generic_map: &HashMap<String, Type>) -> Type {
+        match ty {
+            Type::GenericInst(name, inner_types) => {
+                let resolved_inner: Vec<Type> = inner_types
+                    .iter()
+                    .map(|t| self.resolve_type_with_map(t, generic_map))
+                    .collect();
+
+                let normal_name = self.transform_generic_name(name, &resolved_inner);
+
+                if self.structs.contains_key(&normal_name) {
+                    Type::Struct(normal_name)
+                } else if self.enums.contains_key(&normal_name) {
+                    Type::Enum(normal_name, None)
+                } else {
+                    self::panic!("Generic struct not monomorphized yet: {}", normal_name);
+                }
+            }
+            Type::GenericType(name) => generic_map
+                .get(name)
+                .cloned()
+                .expect(&format!("Generic type '{}' not found in map!", name)),
+            Type::Pointer(inner) => {
+                Type::Pointer(Box::new(self.resolve_type_with_map(inner, generic_map)))
+            }
+            Type::Array(inner, size) => Type::Array(
+                Box::new(self.resolve_type_with_map(inner, generic_map)),
+                *size,
+            ),
+            _ => ty.clone(),
+        }
+    }
+
     fn convert_generic_arg(
-        &mut self,
+        &self,
         arg: &Declaration,
         arg_ty: &Type,
         generics: &Vec<Type>,
         index: usize,
         generic_map: &HashMap<String, Type>,
     ) -> Declaration {
-        match arg_ty {
-            Type::GenericInst(name, inner_types) => {
-                let resolved_inner: Vec<Type> = inner_types
-                    .iter()
-                    .map(|t| match t {
-                        Type::GenericType(g) => {
-                            generic_map.get(g).cloned().unwrap_or_else(|| t.clone())
-                        }
-                        _ => t.clone(),
-                    })
-                    .collect();
-                let resolved_inst = Type::GenericInst(name.clone(), resolved_inner);
-                let ty = self.ensure_monomorphized(&resolved_inst);
-                Declaration {
-                    name: arg.name.clone(),
-                    ty,
-                    initializer: arg.initializer.clone(),
-                }
-            }
-            Type::GenericType(name) => {
-                let ty = generic_map.get(name).unwrap();
-                Declaration {
-                    name: arg.name.clone(),
-                    ty: ty.clone(),
-                    initializer: arg.initializer.clone(),
-                }
-            }
-            Type::Pointer(ty) => {
-                let mut decl = self.convert_generic_arg(arg, ty, generics, index, generic_map);
-                decl.ty = Type::Pointer(Box::new(decl.ty));
-                decl
-            }
-            Type::Array(ty, size) => {
-                let mut decl = self.convert_generic_arg(arg, ty, generics, index, generic_map);
-                decl.ty = Type::Array(Box::new(decl.ty), *size);
-                decl
-            }
-            _ => arg.clone(),
+        Declaration {
+            name: arg.name.clone(),
+            ty: self.resolve_type_with_map(arg_ty, generic_map),
+            initializer: arg.initializer.clone(),
         }
     }
 
     fn convert_generic_args(
-        &mut self,
+        &self,
         args: &Vec<Declaration>,
         generics: &Vec<Type>,
         generic_map: &HashMap<String, Type>,
@@ -406,10 +457,11 @@ impl<'a> Analyzer<'a> {
         };
         for (index, generic) in func_data.generic.iter().enumerate() {
             self.generics
+                .borrow_mut()
                 .insert(generic.clone(), generics[index].clone());
         }
         let args = func_data.args.clone();
-        let generic_map = self.generics.clone();
+        let generic_map = self.generics.borrow().clone();
         let new_args = self.convert_generic_args(&args, generics, &generic_map);
         if func_data.generic.len() > 0 {
             let generic_data = self.generic_func.get(name).unwrap().clone();
@@ -428,7 +480,7 @@ impl<'a> Analyzer<'a> {
                         return_ty = substitute_type(&ret_type, &generic_types, generics);
                         return_ty = self.ensure_monomorphized(&return_ty);
                     }
-                    _ => panic!("error"),
+                    _ => self::panic!("error"),
                 };
                 let res_func_data = FuncData {
                     args: new_args.clone(),
@@ -594,7 +646,7 @@ impl<'a> Analyzer<'a> {
         for (index, arg) in variant_data.args.iter().enumerate() {
             let enum_field = &value[index];
             if !check_types(&enum_field.expr.get_type(self), &arg.ty) {
-                panic!("debil²")
+                self::panic!("debil²")
             }
         }
         Type::Enum(base.clone(), None)
@@ -615,7 +667,7 @@ impl<'a> Analyzer<'a> {
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Type) -> Type {
         match &expr.ty {
             ExprType::Number(num) => self.check_num(num, expected_ty),
-            ExprType::Float(num) => panic!("not implemented"),
+            ExprType::Float(num) => self::panic!("not implemented"),
             ExprType::Variable(var) => self.check_var(var),
             ExprType::Binary { op, left, right } => self.check_binary(op, left, right, expected_ty),
             ExprType::Unary { op, expr } => self.check_unary(op, expr, expected_ty),

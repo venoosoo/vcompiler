@@ -14,7 +14,7 @@ impl<'a> Parser<'a> {
             let name_token = self.consume();
             if name_token.token != TokenType::Var {
                 println!("name_token: {:?}", name_token);
-                panic!("expected field name in struct init");
+                self::panic!("expected field name in struct init");
             }
 
             let field_name = name_token.value.unwrap();
@@ -201,7 +201,7 @@ impl<'a> Parser<'a> {
                 return expr;
             }
 
-            _ => panic!(
+            _ => self::panic!(
                 "Unexpected token in primary expression: {:?}\n{:?}",
                 token.token, self.m_tokens
             ),
@@ -211,7 +211,7 @@ impl<'a> Parser<'a> {
     fn expr_to_ident(&self, expr: Expr) -> String {
         match expr.ty {
             ExprType::Variable(var) => var,
-            _ => panic!("in expr_to_ident got wrong type of expr: {:?}", expr),
+            _ => self::panic!("in expr_to_ident got wrong type of expr: {:?}", expr),
         }
     }
 
@@ -300,7 +300,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_postfix_chain(&mut self) -> Expr {
-        let mut expr = self.parse_primary();
+        let mut expr: Expr = self.parse_primary();
         loop {
             match self.peek(0).token {
                 TokenType::OpenBracket => {
@@ -316,7 +316,7 @@ impl<'a> Parser<'a> {
                         file: self.current_file.clone(),
                         line: self.line,
                         col: self.col,
-                    }
+                    };
                 }
 
                 TokenType::As => {
@@ -343,7 +343,14 @@ impl<'a> Parser<'a> {
                         || self.peek(1).token == TokenType::Less
                     {
                         // vec.vector_push(5) syntax
-                        let call = self.parse_expr();
+                        let name_ident = self.parse_primary(); // just consumes the function name token
+
+                        let call = if self.peek(0).token == TokenType::Less {
+                            self.parse_generic_call(name_ident)
+                        } else {
+                            self.parse_call(name_ident)
+                        };
+
                         match call.ty {
                             ExprType::Call {
                                 name,
@@ -362,9 +369,9 @@ impl<'a> Parser<'a> {
                                     file: self.current_file.clone(),
                                     line: self.line,
                                     col: self.col,
-                                }
+                                };
                             }
-                            _ => panic!(""),
+                            _ => self::panic!(""),
                         }
                     } else {
                         // vector_push(vec,5) syntax
@@ -378,7 +385,7 @@ impl<'a> Parser<'a> {
                             file: self.current_file.clone(),
                             line: self.line,
                             col: self.col,
-                        }
+                        };
                     }
                 }
 
@@ -402,74 +409,14 @@ impl<'a> Parser<'a> {
 
                 TokenType::Less => {
                     if self.is_type(self.peek(1)) {
-                        let mut generics = Vec::new();
-                        self.consume();
-                        while self.peek(0).token != TokenType::More {
-                            let bef_ptr = self.parse_ptr();
-                            let ty = self.get_type();
-                            let aft_ptr = self.parse_ptr();
-                            let ty = self.parse_array(ty);
-                            let ty = self.apply_ptr(ty, bef_ptr + aft_ptr);
-                            generics.push(ty);
-                            if self.peek(0).token == TokenType::Coma {
-                                self.consume();
-                            }
-                        }
-                        self.consume();
-                        let mut args: Vec<Expr> = Vec::new();
-                        if self.peek(0).token != TokenType::CloseParen {
-                            self.consume();
-                            loop {
-                                if self.peek(0).token == TokenType::CloseParen {
-                                    break;
-                                }
-                                args.push(self.parse_expr());
-                                if self.peek(0).token == TokenType::Coma {
-                                    self.expect(TokenType::Coma);
-                                }
-                            }
-                        }
-                        self.expect(TokenType::CloseParen);
-                        let expr_ty = ExprType::Call {
-                            generics: generics,
-                            name: self.expr_to_ident(expr),
-                            args,
-                        };
-                        expr = Expr {
-                            ty: expr_ty,
-                            file: self.current_file.clone(),
-                            line: self.line,
-                            col: self.col,
-                        }
+                        expr = self.parse_generic_call(expr);
                     } else {
                         break;
                     }
                 }
 
                 TokenType::OpenParen => {
-                    self.consume();
-                    let mut args: Vec<Expr> = Vec::new();
-                    if self.peek(0).token != TokenType::CloseParen {
-                        loop {
-                            args.push(self.parse_expr());
-                            if self.peek(0).token == TokenType::CloseParen {
-                                break;
-                            }
-                            self.expect(TokenType::Coma);
-                        }
-                    }
-                    self.expect(TokenType::CloseParen);
-                    let expr_ty = ExprType::Call {
-                        generics: Vec::new(),
-                        name: self.expr_to_ident(expr),
-                        args,
-                    };
-                    expr = Expr {
-                        ty: expr_ty,
-                        file: self.current_file.clone(),
-                        line: self.line,
-                        col: self.col,
-                    }
+                    expr = self.parse_call(expr);
                 }
 
                 TokenType::Colon => {
@@ -500,13 +447,82 @@ impl<'a> Parser<'a> {
                                 col: self.col,
                             }
                         }
-                        _ => panic!("really strange syntax error"),
+                        _ => self::panic!("really strange syntax error"),
                     }
                 }
                 _ => break,
             }
         }
         expr
+    }
+
+
+    fn parse_generic_call(&mut self, expr: Expr) -> Expr {
+        let mut generics = Vec::new();
+        self.expect(TokenType::Less);
+        while self.peek(0).token != TokenType::More {
+            let bef_ptr = self.parse_ptr();
+            let ty = self.get_type();
+            let aft_ptr = self.parse_ptr();
+            let ty = self.parse_array(ty);
+            let ty = self.apply_ptr(ty, bef_ptr + aft_ptr);
+            generics.push(ty);
+            if self.peek(0).token == TokenType::Coma {
+                self.consume();
+            }
+        }
+        self.expect(TokenType::More);
+        let mut args: Vec<Expr> = Vec::new();
+        if self.peek(0).token != TokenType::CloseParen {
+            self.expect(TokenType::OpenParen);
+            loop {
+                if self.peek(0).token == TokenType::CloseParen {
+                    break;
+                }
+                args.push(self.parse_expr());
+                if self.peek(0).token == TokenType::Coma {
+                    self.expect(TokenType::Coma);
+                }
+            }
+        }
+        self.expect(TokenType::CloseParen);
+        let expr_ty = ExprType::Call {
+            generics,
+            name: self.expr_to_ident(expr),
+            args,
+        };
+        Expr {
+            ty: expr_ty,
+            file: self.current_file.clone(),
+            line: self.line,
+            col: self.col,
+        }
+    }
+
+    fn parse_call(&mut self, expr: Expr) -> Expr {
+        self.expect(TokenType::OpenParen);
+        let mut args: Vec<Expr> = Vec::new();
+        if self.peek(0).token != TokenType::CloseParen {
+            loop {
+                args.push(self.parse_expr());
+                if self.peek(0).token == TokenType::CloseParen {
+                    break;
+                }
+                self.expect(TokenType::Coma);
+            }
+        }
+        self.expect(TokenType::CloseParen);
+        let expr_ty = ExprType::Call {
+            generics: Vec::new(),
+            name: self.expr_to_ident(expr),
+            args,
+        };
+        Expr {
+            ty: expr_ty,
+            file: self.current_file.clone(),
+            line: self.line,
+            col: self.col,
+        }
     }
 
     fn is_bin_op(ty: TokenType) -> Option<BinOp> {

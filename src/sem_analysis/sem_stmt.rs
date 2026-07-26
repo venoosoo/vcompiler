@@ -353,7 +353,7 @@ impl<'a> Analyzer<'a> {
                 if let StmtType::Declaration(decl) = &global.ty {
                     self.global_vars.insert(decl.name.clone(), decl.ty.clone());
                 } else {
-                    panic!("global decl must be a declaration");
+                    self::panic!("global decl must be a declaration");
                 }
             }
             StmtType::ExternFn(stmt) => self.check_extern_fn(stmt),

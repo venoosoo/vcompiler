@@ -1,9 +1,6 @@
+use core::panic;
 use std::{
-    cell::Cell,
-    collections::HashMap,
-    dbg,
-    env::var,
-    fmt::{self, write},
+    cell::{Cell, RefCell}, collections::HashMap, dbg, env::var, fmt::{self, write}, write,
 };
 
 use indexmap::IndexMap;
@@ -170,7 +167,6 @@ impl<'a> TypeContext for Analyzer<'a> {
                 }
                 args.iter().enumerate().all(|(i, expr)| {
                     let expr_ty = expr.get_type(self);
-
                     let param_ty = &func.args[i].ty.clone();
                     let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let param_ty = self.ensure_monomorphized(param_ty);
@@ -178,7 +174,6 @@ impl<'a> TypeContext for Analyzer<'a> {
                         ExprType::Number(_) => is_number(&param_ty),
                         _ => check_types(&expr_ty, &param_ty),
                     };
-
                     arg_matches
                 })
             })
@@ -343,7 +338,7 @@ impl<'a> Analyzer<'a> {
     pub fn new(stmts: &'a Vec<Stmt>) -> Self {
         Self {
             stmts,
-            generics: HashMap::new(),
+            generics: RefCell::new(HashMap::new()),
             had_error: Cell::new(false),
             scopes: vec![HashMap::new()], // start with global scope
             functions: HashMap::new(),
@@ -357,7 +352,6 @@ impl<'a> Analyzer<'a> {
             enums: HashMap::new(),
             generic_func: HashMap::new(),
             current_ret_type: Type::Unknown,
-            loop_depth: 0,
         }
     }
 

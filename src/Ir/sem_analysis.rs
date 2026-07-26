@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::HashMap};
+use std::{cell::{Cell, RefCell}, collections::HashMap};
 
 use clap::builder::Str;
 
@@ -14,7 +14,7 @@ pub struct Analyzer<'a> {
     pub stmts: &'a Vec<Stmt>,
     pub had_error: Cell<bool>,
     pub scopes: Vec<HashMap<String, Type>>,
-    pub generics: HashMap<String, Type>,
+    pub generics: RefCell<HashMap<String, Type>>, 
     pub global_vars: HashMap<String, Type>,
     pub functions: HashMap<String, Vec<FuncData>>,
     pub enums: HashMap<String, EnumData>,
@@ -26,8 +26,6 @@ pub struct Analyzer<'a> {
     pub line: usize,
     pub current_file: String,
     pub col: usize,
-    // track loop depth for break/continue
-    pub loop_depth: usize,
 }
 
 #[derive(Debug, Clone)]
