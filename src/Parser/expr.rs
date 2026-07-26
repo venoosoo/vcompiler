@@ -1,3 +1,5 @@
+use std::{dbg, matches};
+
 use super::*;
 
 use crate::Ir::expr::*;
@@ -87,7 +89,6 @@ impl<'a> Parser<'a> {
             }
             TokenType::HexNum => {
                 let token_value = &token.value.unwrap();
-
                 let expr_ty = ExprType::Number(i64::from_str_radix(token_value, 16).unwrap());
                 Expr {
                     ty: expr_ty,
@@ -337,17 +338,47 @@ impl<'a> Parser<'a> {
                 }
 
                 TokenType::Dot => {
-                    self.consume();
-                    let name = self.consume().value.unwrap();
-                    let expr_ty = ExprType::StructMember {
-                        base: Box::new(expr),
-                        name,
-                    };
-                    expr = Expr {
-                        ty: expr_ty,
-                        file: self.current_file.clone(),
-                        line: self.line,
-                        col: self.col,
+                    self.expect(TokenType::Dot);
+                    if self.peek(1).token == TokenType::OpenParen
+                        || self.peek(1).token == TokenType::Less
+                    {
+                        // vec.vector_push(5) syntax
+                        let call = self.parse_expr();
+                        match call.ty {
+                            ExprType::Call {
+                                name,
+                                generics,
+                                args,
+                            } => {
+                                let mut new_args = args.clone();
+                                new_args.insert(0, expr);
+                                let expr_ty = ExprType::Call {
+                                    generics: generics,
+                                    name: name,
+                                    args: new_args,
+                                };
+                                expr = Expr {
+                                    ty: expr_ty,
+                                    file: self.current_file.clone(),
+                                    line: self.line,
+                                    col: self.col,
+                                }
+                            }
+                            _ => panic!(""),
+                        }
+                    } else {
+                        // vector_push(vec,5) syntax
+                        let name = self.consume().value.unwrap();
+                        let expr_ty = ExprType::StructMember {
+                            base: Box::new(expr),
+                            name: name,
+                        };
+                        expr = Expr {
+                            ty: expr_ty,
+                            file: self.current_file.clone(),
+                            line: self.line,
+                            col: self.col,
+                        }
                     }
                 }
 

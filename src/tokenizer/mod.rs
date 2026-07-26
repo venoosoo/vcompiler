@@ -203,7 +203,7 @@ impl Tokenizer {
                 if self.peek(0) == 'x' {
                     self.consume();
                     self.m_buf.clear();
-                    while self.peek(0).is_numeric() {
+                    while self.peek(0).is_alphanumeric() {
                         let v = self.consume();
                         self.m_buf.push(v);
                     }

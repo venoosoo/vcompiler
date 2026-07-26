@@ -283,7 +283,7 @@ fn main() -> i64 {
         if key != 0 {
             last_pressed = key;
         }
-        if now - last_tick > (interval - (game_data.score * 2)) {
+        if now - last_tick > interval - (game_data.score * 2) {
             game_data.time = get_elapsed_ms() / 1000;
             last_tick = now;
 

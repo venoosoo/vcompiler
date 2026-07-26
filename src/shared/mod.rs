@@ -215,7 +215,6 @@ pub fn check_types(left: &Type, right: &Type) -> bool {
         _ => {}
     }
 
-
     // 4. Allow variants without data to cast to other data types
     // Example Option::None can cast to any Option__i64, Option__i32, etc...
     if let (Type::Enum(l_name, _), Type::Enum(r_name, _)) = (left, right) {
