@@ -115,6 +115,7 @@ impl Gen {
 
                             let field = self
                                 .structs
+                                .borrow()
                                 .get(struct_name)
                                 .unwrap()
                                 .elements
@@ -129,7 +130,9 @@ impl Gen {
                     Type::Struct(struct_name) => {
                         let layout = self
                             .structs
+                            .borrow()
                             .get(&struct_name)
+                            .cloned()
                             .expect("no struct with that name");
 
                         let field = layout.elements.get(name).expect("no such field in struct");
@@ -333,7 +336,7 @@ impl Gen {
                     variant,
                     value,
                 } => {
-                    let enum_data = self.enums.get(base).unwrap();
+                    let enum_data = self.enums.borrow().get(base).cloned().unwrap();
                     self.alloc(enum_data.size);
                     self.gen_get_enum_addr(base, value, variant);
                 }
@@ -341,7 +344,7 @@ impl Gen {
                     struct_name_ty,
                     fields,
                 } => {
-                    let struct_data = self.structs.get(struct_name_ty).unwrap();
+                    let struct_data = self.structs.borrow().get(struct_name_ty).cloned().unwrap();
                     self.alloc(struct_data.size);
                     self.eval_expr(ret_expr, &ret_type);
                 }
@@ -352,11 +355,11 @@ impl Gen {
             }
             match &ret_type {
                 Type::Struct(name) => {
-                    let struct_data = self.structs.get(name).unwrap().clone();
+                    let struct_data = self.structs.borrow().get(name).unwrap().clone();
                     self.copy_chunks_to_hidden_ret(struct_data.size);
                 }
                 Type::Enum(name, _) => {
-                    let enum_data = self.enums.get(name).unwrap().clone();
+                    let enum_data = self.enums.borrow().get(name).unwrap().clone();
 
                     match &ret_expr.ty {
                         ExprType::GetEnum {
@@ -369,12 +372,12 @@ impl Gen {
 
                         ExprType::Call { .. } => match &ret_type {
                             Type::Enum(name, _) => {
-                                let size = self.enums.get(name).unwrap().size;
+                                let size = self.enums.borrow().get(name).unwrap().size;
                                 self.alloc(size);
                                 self.copy_chunks_to_hidden_ret(size);
                             }
                             Type::Struct(name) => {
-                                let size = self.structs.get(name).unwrap().size;
+                                let size = self.structs.borrow().get(name).unwrap().size;
                                 self.alloc(size);
                                 self.copy_chunks_to_hidden_ret(size);
                             }
@@ -496,7 +499,7 @@ impl Gen {
             let pos = self.alloc_type(&arg_ty);
             match arg_ty {
                 Type::Enum(ref name, _) => {
-                    let size = self.enums.get(name).unwrap().size;
+                    let size = self.enums.borrow().get(name).unwrap().size;
                     if size <= 8 {
                         self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                         arg_index -= 1;
@@ -511,7 +514,7 @@ impl Gen {
                     }
                 }
                 Type::Struct(ref name) => {
-                    let size = self.structs.get(name).unwrap().size;
+                    let size = self.structs.borrow().get(name).unwrap().size;
                     if size <= 8 {
                         self.get_arg(arg_index, &arg_ty, pos, Some(stack_arg_pos), is_rvo);
                         arg_index -= 1;
@@ -560,7 +563,7 @@ impl Gen {
             _ => self::panic!("-> on non-pointer, use . instead"),
         };
 
-        let struct_data = self.structs.get(&struct_name).unwrap().clone();
+        let struct_data = self.structs.borrow().get(&struct_name).unwrap().clone();
         let field = struct_data.elements.get(field_name).unwrap();
         self.emit_func_data(format!("    add rax, {}", field.offset));
         field.ty.clone()
@@ -649,11 +652,11 @@ impl Gen {
             elements,
             size,
         };
-
-        self.structs.insert(data.name.clone(), struct_data);
+        let mut structs = self.structs.borrow_mut();
+        structs.insert(data.name.clone(), struct_data);
     }
 
-    pub fn compute_struct_size(&mut self, fields: &Vec<StructField>) -> usize {
+    pub fn compute_struct_size(&self, fields: &Vec<StructField>) -> usize {
         let mut offset = 0;
         let mut max_align = 1;
 
@@ -686,6 +689,7 @@ impl Gen {
             Type::Array(elem_type, count) => self.type_size(elem_type) * count,
             Type::Struct(name) => {
                 self.structs
+                    .borrow()
                     .get(name)
                     .expect(&format!("Unknown struct: {}", name))
                     .size
@@ -791,7 +795,7 @@ impl Gen {
                 }
             },
             Type::Enum(..) => {
-                self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
+                self.emit_func_data(format!("    mov rax, [rbp - {}]", pos));
                 self.emit_func_data(format!("    add rax, {}", field.offset));
                 self.emit_func_data(format!("    mov rax, [rax]"));
             }
@@ -819,7 +823,7 @@ impl Gen {
                         _ => base,
                     }
                 };
-                let enum_data = self.enums.get(new_base).unwrap().clone();
+                let enum_data = self.enums.borrow().get(new_base).unwrap().clone();
                 let field_data = enum_data.variants.get(value).unwrap();
                 for (index, arg) in args.iter().enumerate() {
                     let field = &field_data.args[index];
@@ -872,7 +876,7 @@ impl Gen {
                         _ => base,
                     }
                 };
-                let enum_data = self.enums.get(new_base).unwrap();
+                let enum_data = self.enums.borrow().get(new_base).cloned().unwrap();
                 let field_data = enum_data.variants.get(value).unwrap();
                 let tag = field_data.tag;
                 self.emit_func_data(format!("    cmp rax, {}", tag));
@@ -905,7 +909,7 @@ impl Gen {
                             _ => base,
                         }
                     };
-                    let enum_data = self.enums.get(new_base).unwrap();
+                    let enum_data = self.enums.borrow().get(new_base).cloned().unwrap();
                     let field_data = enum_data.variants.get(value).unwrap();
                     let tag = field_data.tag;
                     self.emit_func_data(format!("match_{id}_{tag}:"));

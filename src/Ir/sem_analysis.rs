@@ -1,4 +1,7 @@
-use std::{cell::{Cell, RefCell}, collections::HashMap};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+};
 
 use clap::builder::Str;
 
@@ -14,14 +17,14 @@ pub struct Analyzer<'a> {
     pub stmts: &'a Vec<Stmt>,
     pub had_error: Cell<bool>,
     pub scopes: Vec<HashMap<String, Type>>,
-    pub generics: RefCell<HashMap<String, Type>>, 
+    pub generics: RefCell<HashMap<String, Type>>,
     pub global_vars: HashMap<String, Type>,
     pub functions: HashMap<String, Vec<FuncData>>,
-    pub enums: HashMap<String, EnumData>,
+    pub enums: RefCell<HashMap<String, EnumData>>,
     pub break_stack: Vec<String>,
     pub contniue_stack: Vec<String>,
     pub generic_func: HashMap<String, Stmt>,
-    pub structs: HashMap<String, StructData>,
+    pub structs: RefCell<HashMap<String, StructData>>,
     pub current_ret_type: Type,
     pub line: usize,
     pub current_file: String,

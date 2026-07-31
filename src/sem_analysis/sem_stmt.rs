@@ -65,6 +65,7 @@ impl<'a> Analyzer<'a> {
 
             Type::Struct(struct_name) => self
                 .structs
+                .borrow()
                 .get(struct_name)
                 .and_then(|s| s.elements.get(name))
                 .map(|f| f.ty.clone())
@@ -248,7 +249,9 @@ impl<'a> Analyzer<'a> {
                 elements,
                 size,
             };
-            self.structs.insert(data.name.clone(), struct_data);
+            self.structs
+                .borrow_mut()
+                .insert(data.name.clone(), struct_data);
         }
     }
 

@@ -203,7 +203,8 @@ impl<'a> Parser<'a> {
 
             _ => self::panic!(
                 "Unexpected token in primary expression: {:?}\n{:?}",
-                token.token, self.m_tokens
+                token.token,
+                self.m_tokens
             ),
         }
     }
@@ -455,7 +456,6 @@ impl<'a> Parser<'a> {
         }
         expr
     }
-
 
     fn parse_generic_call(&mut self, expr: Expr) -> Expr {
         let mut generics = Vec::new();

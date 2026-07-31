@@ -24,7 +24,7 @@ pub struct Gen {
     pub contniue_stack: Vec<String>,
     pub break_stack: Vec<String>,
     pub highest_stack_pos: usize,
-    pub generic_func: HashMap<String, Stmt>,
+    pub generic_func: HashMap<String, Vec<Stmt>>,
     pub generics: RefCell<HashMap<String, Type>>,
     pub scopes: Vec<HashMap<String, VarData>>,
     pub global_vars: HashMap<String, VarData>,
@@ -32,9 +32,9 @@ pub struct Gen {
     pub func_data: String,
     pub func_out: String,
     pub bss_code: Vec<String>,
-    pub structs: HashMap<String, StructData>,
+    pub structs: RefCell<HashMap<String, StructData>>,
     pub functions: HashMap<String, Vec<FuncData>>,
-    pub enums: HashMap<String, EnumData>,
+    pub enums: RefCell<HashMap<String, EnumData>>,
     pub id: usize,
 }
 

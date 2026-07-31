@@ -1,6 +1,11 @@
 use core::panic;
 use std::{
-    cell::{Cell, RefCell}, collections::HashMap, dbg, env::var, fmt::{self, write}, write,
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    dbg,
+    env::var,
+    fmt::{self, write},
+    write,
 };
 
 use indexmap::IndexMap;
@@ -141,7 +146,7 @@ impl fmt::Display for SemanticError {
 
 impl<'a> TypeContext for Analyzer<'a> {
     fn resolve_call(
-        &mut self,
+        &self,
         name: &String,
         args: &Vec<Expr>,
         generics: &Vec<Type>,
@@ -168,8 +173,6 @@ impl<'a> TypeContext for Analyzer<'a> {
                 args.iter().enumerate().all(|(i, expr)| {
                     let expr_ty = expr.get_type(self);
                     let param_ty = &func.args[i].ty.clone();
-                    let expr_ty = self.ensure_monomorphized(&expr_ty);
-                    let param_ty = self.ensure_monomorphized(param_ty);
                     let arg_matches = match &expr.ty {
                         ExprType::Number(_) => is_number(&param_ty),
                         _ => check_types(&expr_ty, &param_ty),
@@ -182,7 +185,7 @@ impl<'a> TypeContext for Analyzer<'a> {
         Some((func_data.clone(), overload_pos))
     }
 
-    fn monomorphize_struct(&mut self, def: &StructData, type_args: &Vec<Type>) -> Type {
+    fn monomorphize_struct(&self, def: &StructData, type_args: &Vec<Type>) -> Type {
         let mangled = format!(
             "{}__{}",
             def.name,
@@ -192,7 +195,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                 .collect::<Vec<_>>()
                 .join("_")
         );
-        if self.structs.contains_key(&mangled) {
+        if self.structs.borrow().contains_key(&mangled) {
             return Type::Struct(mangled.clone()); // already done
         }
 
@@ -215,7 +218,7 @@ impl<'a> TypeContext for Analyzer<'a> {
             .collect();
 
         let size = self.compute_struct_size(&fields);
-        self.structs.insert(
+        self.structs.borrow_mut().insert(
             mangled.clone(),
             StructData {
                 generic_type: Vec::new(),
@@ -230,7 +233,7 @@ impl<'a> TypeContext for Analyzer<'a> {
     fn field_alignment(&self, ty: &Type) -> usize {
         match ty {
             Type::Struct(name) => {
-                let s = self.structs.get(name).unwrap();
+                let s = self.structs.borrow().get(name).cloned().unwrap();
                 s.elements
                     .values()
                     .map(|f| self.field_alignment(&f.ty))
@@ -238,7 +241,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                     .unwrap_or(1)
             }
             Type::Enum(name, _) => {
-                let e = self.enums.get(name).unwrap();
+                let e = self.enums.borrow().get(name).cloned().unwrap();
                 let variant_align = e
                     .variants
                     .values()
@@ -252,7 +255,7 @@ impl<'a> TypeContext for Analyzer<'a> {
         }
     }
 
-    fn monomorphize_enum(&mut self, def: &EnumData, type_args: &Vec<Type>) -> Type {
+    fn monomorphize_enum(&self, def: &EnumData, type_args: &Vec<Type>) -> Type {
         let mangled = format!(
             "{}__{}",
             def.name,
@@ -263,7 +266,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                 .join("_")
         );
 
-        if self.enums.contains_key(&mangled) {
+        if self.enums.borrow().contains_key(&mangled) {
             return Type::Enum(mangled.clone(), None); // already done
         }
 
@@ -289,7 +292,7 @@ impl<'a> TypeContext for Analyzer<'a> {
                 },
             );
         }
-        self.enums.insert(
+        self.enums.borrow_mut().insert(
             mangled.clone(),
             EnumData {
                 name: mangled.clone(),
@@ -301,21 +304,23 @@ impl<'a> TypeContext for Analyzer<'a> {
         return Type::Enum(mangled, None);
     }
 
-    fn ensure_monomorphized(&mut self, ty: &Type) -> Type {
+    fn ensure_monomorphized(&self, ty: &Type) -> Type {
         match ty {
             Type::GenericInst(name, type_args) => {
                 let mangled = type_name(ty);
-                // already done?
-                if self.structs.contains_key(&mangled) {
+                if self.structs.borrow().contains_key(&mangled) {
                     return Type::Struct(mangled.clone());
                 }
-                if self.enums.contains_key(&mangled) {
+                if self.enums.borrow().contains_key(&mangled) {
                     return Type::Enum(mangled.clone(), None);
                 }
-                // find the generic definition and monomorphize
-                if let Some(struct_def) = self.structs.get(name).cloned() {
+
+                let struct_def = self.structs.borrow().get(name).cloned();
+                let enum_def = self.enums.borrow().get(name).cloned();
+
+                if let Some(struct_def) = struct_def {
                     return self.monomorphize_struct(&struct_def, type_args);
-                } else if let Some(enum_def) = self.enums.get(name).cloned() {
+                } else if let Some(enum_def) = enum_def {
                     return self.monomorphize_enum(&enum_def, type_args);
                 } else {
                     panic!("unknown generic type: {}", name);
@@ -344,18 +349,18 @@ impl<'a> Analyzer<'a> {
             functions: HashMap::new(),
             break_stack: Vec::new(),
             contniue_stack: Vec::new(),
-            structs: HashMap::new(),
+            structs: RefCell::new(HashMap::new()),
             current_file: String::new(),
             line: 0,
             col: 0,
             global_vars: HashMap::new(),
-            enums: HashMap::new(),
+            enums: RefCell::new(HashMap::new()),
             generic_func: HashMap::new(),
             current_ret_type: Type::Unknown,
         }
     }
 
-    pub fn compute_struct_size(&mut self, fields: &Vec<StructField>) -> usize {
+    pub fn compute_struct_size(&self, fields: &Vec<StructField>) -> usize {
         let mut offset = 0;
         let mut max_align = 1;
 
@@ -390,11 +395,12 @@ impl<'a> Analyzer<'a> {
             Type::Array(elem_type, count) => self.type_size(elem_type),
             Type::Struct(name) => {
                 self.structs
+                    .borrow()
                     .get(name)
                     .expect(&format!("Unknown struct: {}", name))
                     .size
             }
-            Type::GenericInst(str, ty) => todo!(),
+            Type::GenericInst(str, ty) => panic!("generic inst isnt monomorphized"),
             Type::GenericType(name) => {
                 // TODO: make the self.generic the same as in gen and fix this
                 8
@@ -470,7 +476,9 @@ impl<'a> Analyzer<'a> {
                     size,
                     elements: fields,
                 };
-                self.structs.insert(data.name.clone(), struct_data);
+                self.structs
+                    .borrow_mut()
+                    .insert(data.name.clone(), struct_data);
             }
             StmtType::InitEnum {
                 name,
@@ -483,7 +491,7 @@ impl<'a> Analyzer<'a> {
                     variants: variants.clone(),
                     size: 0,
                 };
-                self.enums.insert(name.clone(), enum_data);
+                self.enums.borrow_mut().insert(name.clone(), enum_data);
             }
             _ => {}
         }
@@ -518,7 +526,7 @@ impl<'a> Analyzer<'a> {
         return None;
     }
 
-    pub fn get_function(&mut self, name: &String) -> Vec<FuncData> {
+    pub fn get_function(&self, name: &String) -> Vec<FuncData> {
         let func_data = self.functions.get(name);
         if func_data.is_some() {
             return func_data.unwrap().to_vec();

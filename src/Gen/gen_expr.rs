@@ -1,5 +1,5 @@
-use std::{dbg, vec};
 use std::fmt::format;
+use std::{dbg, vec};
 
 use indexmap::IndexMap;
 
@@ -7,16 +7,18 @@ use crate::Ir::expr::{self, BinOp, EnumExprField, Expr, ExprType, Lookup, UnaryO
 use crate::Ir::r#gen;
 use crate::Ir::shared::TypeContext;
 use crate::Ir::stmt::{Declaration, EnumVariant, StructField};
-use crate::shared::{arg_pos, build_generic_map, coerce_numeric, is_numeric, is_unsigned};
+use crate::shared::{
+    arg_pos, build_generic_map, coerce_numeric, is_numeric, is_unsigned, transform_generic_name,
+};
 
 use super::*;
 
 impl Lookup for Gen {
     fn look_var(&self, name: &String) -> Option<Type> {
-        if self.structs.get(name).is_some() {
+        if self.structs.borrow().get(name).is_some() {
             return Some(Type::Struct(name.clone()));
         }
-        if self.enums.get(name).is_some() {
+        if self.enums.borrow().get(name).is_some() {
             return Some(Type::Enum(name.clone(), None));
         } else {
             let var = self.lookup_var(name);
@@ -42,7 +44,7 @@ impl Lookup for Gen {
         }
     }
     fn look_struct_init(&self, struct_name: &String) -> Type {
-        if let Some(_struct_data) = self.structs.get(struct_name) {
+        if let Some(_struct_data) = self.structs.borrow().get(struct_name) {
             Type::Struct(struct_name.clone())
         } else {
             self::panic!("Struct {} not found in get_type", struct_name);
@@ -84,7 +86,7 @@ impl Lookup for Gen {
             },
             _ => self::panic!("member access on non-struct: {:?}", base_ty),
         };
-        let struct_data = self.structs.get(&struct_name).unwrap();
+        let struct_data = self.structs.borrow().get(&struct_name).cloned().unwrap();
         let field = struct_data.elements.get(name).unwrap();
         field.ty.clone()
     }
@@ -92,17 +94,18 @@ impl Lookup for Gen {
         let func_name = name.clone();
 
         let vec_func_data: Vec<FuncData> = if generics.len() > 0 {
-            let new_name = self.transform_generic_name(&func_name, generics);
+            let (func_data, overload_pos) = self.resolve_call(name, args, generics).unwrap();
+            let new_name = transform_generic_name(&func_name, generics, 0);
             if let Some(existing) = self.functions.get(&new_name) {
                 existing.clone()
             } else {
                 let func_data = self.functions.get(&func_name).unwrap()[0].clone();
-                let generic_map = build_generic_map(func_data.generic.clone(), generics.clone());
+                let generic_map = build_generic_map(&func_data.generic, generics);
                 {
                     *self.generics.borrow_mut() = generic_map.clone();
                 }
                 let new_args: Vec<Declaration> =
-                    self.convert_generic_args(&func_data.args, generics, &generic_map);
+                    self.convert_generic_args(&func_data.args, generics, &generic_map, 0);
 
                 let ret_type: Type = match &func_data.return_type {
                     Type::GenericType(name) => {
@@ -124,6 +127,7 @@ impl Lookup for Gen {
         } else {
             self.functions.get(&func_name).unwrap().clone()
         };
+
         let func_data = vec_func_data
             .iter()
             .find(|func| {
@@ -511,41 +515,27 @@ impl Gen {
         "rax".to_string()
     }
 
-    pub fn transform_generic_name(&self, name: &String, generics: &Vec<Type>) -> String {
-        let mut new_generics = Vec::new();
-        for i in generics {
-            match i {
-                Type::GenericType(name) => {}
-                _ => new_generics.push(i),
-            }
-        }
-        let mangled = format!(
-            "{}__{}",
-            name,
-            generics
-                .iter()
-                .map(|t| type_name(t))
-                .collect::<Vec<_>>()
-                .join("_")
-        );
-        mangled
-    }
-
-    fn resolve_type_with_map(&self, ty: &Type, generic_map: &HashMap<String, Type>) -> Type {
+    fn resolve_type_with_map(
+        &self,
+        ty: &Type,
+        generic_map: &HashMap<String, Type>,
+        overload_pos: i64,
+    ) -> Type {
         match ty {
             Type::GenericInst(name, inner_types) => {
                 let resolved_inner: Vec<Type> = inner_types
                     .iter()
-                    .map(|t| self.resolve_type_with_map(t, generic_map))
+                    .map(|t| self.resolve_type_with_map(t, generic_map, overload_pos))
                     .collect();
 
-                let normal_name = self.transform_generic_name(name, &resolved_inner);
-
-                if self.structs.contains_key(&normal_name) {
+                let normal_name = transform_generic_name(name, &resolved_inner, -1);
+                if self.structs.borrow().contains_key(&normal_name) {
                     Type::Struct(normal_name)
-                } else if self.enums.contains_key(&normal_name) {
+                } else if self.enums.borrow().contains_key(&normal_name) {
                     Type::Enum(normal_name, None)
                 } else {
+                    dbg!(&ty);
+                    dbg!(&self.enums);
                     self::panic!("Generic struct not monomorphized yet: {}", normal_name);
                 }
             }
@@ -553,11 +543,13 @@ impl Gen {
                 .get(name)
                 .cloned()
                 .expect(&format!("Generic type '{}' not found in map!", name)),
-            Type::Pointer(inner) => {
-                Type::Pointer(Box::new(self.resolve_type_with_map(inner, generic_map)))
-            }
+            Type::Pointer(inner) => Type::Pointer(Box::new(self.resolve_type_with_map(
+                inner,
+                generic_map,
+                overload_pos,
+            ))),
             Type::Array(inner, size) => Type::Array(
-                Box::new(self.resolve_type_with_map(inner, generic_map)),
+                Box::new(self.resolve_type_with_map(inner, generic_map, overload_pos)),
                 *size,
             ),
             _ => ty.clone(),
@@ -570,11 +562,12 @@ impl Gen {
         arg_ty: &Type,
         generics: &Vec<Type>,
         index: usize,
+        overload_pos: i64,
         generic_map: &HashMap<String, Type>,
     ) -> Declaration {
         Declaration {
             name: arg.name.clone(),
-            ty: self.resolve_type_with_map(arg_ty, generic_map),
+            ty: self.resolve_type_with_map(arg_ty, generic_map, overload_pos),
             initializer: arg.initializer.clone(),
         }
     }
@@ -584,11 +577,12 @@ impl Gen {
         args: &Vec<Declaration>,
         generics: &Vec<Type>,
         generic_map: &HashMap<String, Type>,
+        overload_pos: i64,
     ) -> Vec<Declaration> {
         args.iter()
             .enumerate()
             .map(|(index, arg)| {
-                self.convert_generic_arg(arg, &arg.ty, generics, index, generic_map)
+                self.convert_generic_arg(arg, &arg.ty, generics, index, overload_pos, generic_map)
             })
             .collect()
     }
@@ -617,7 +611,7 @@ impl Gen {
         for i in args.iter() {
             match &i.ty {
                 Type::Struct(name) => {
-                    let struct_data = self.structs.get(name).unwrap();
+                    let struct_data = self.structs.borrow().get(name).cloned().unwrap();
                     if struct_data.size <= 8 {
                         count += 1
                     } else if struct_data.size <= 16 {
@@ -625,7 +619,7 @@ impl Gen {
                     }
                 }
                 Type::Enum(name, _) => {
-                    let enum_data = self.enums.get(name).unwrap();
+                    let enum_data = self.enums.borrow().get(name).cloned().unwrap();
                     if enum_data.size <= 8 {
                         count += 1
                     } else if enum_data.size <= 16 {
@@ -653,16 +647,15 @@ impl Gen {
         new_args: &Vec<Declaration>,
         is_rvo: bool,
     ) -> usize {
-        let mut arg_index = self.arg_count(is_rvo, &func_data.args);
+        let mut arg_index = self.arg_count(is_rvo, new_args);
 
         let mut space_taken = 0;
-
         for (index, arg) in args.iter().enumerate().rev() {
-            let arg_type = func_data.args[index].ty.clone();
+            let arg_type = new_args[index].ty.clone();
             self.eval_expr(&arg, &arg_type);
             match arg_type {
                 Type::Enum(ref name, _) => {
-                    let enum_data = self.enums.get(name).unwrap();
+                    let enum_data = self.enums.borrow().get(name).cloned().unwrap();
                     if enum_data.size <= 8 {
                         self.emit_func_data(format!("    mov rax, [rax]"));
                         arg_index -= 1;
@@ -709,7 +702,7 @@ impl Gen {
                     }
                 }
                 Type::Struct(ref name) => {
-                    let struct_data = self.structs.get(name).unwrap();
+                    let struct_data = self.structs.borrow().get(name).cloned().unwrap();
                     if struct_data.size <= 8 {
                         self.emit_func_data(format!("    mov rax, [rax]"));
                         arg_index -= 1;
@@ -790,9 +783,9 @@ impl Gen {
                         let map = self.generics.borrow();
                         if let Some(generic_ty) = map.get(name) {
                             generic_ty.clone()
-                        } else if self.structs.contains_key(name) {
+                        } else if self.structs.borrow().contains_key(name) {
                             Type::Struct(name.clone())
-                        } else if self.enums.contains_key(name) {
+                        } else if self.enums.borrow().contains_key(name) {
                             Type::Enum(name.clone(), None)
                         } else {
                             self::panic!(
@@ -811,7 +804,7 @@ impl Gen {
 
         let new_args = {
             let map = self.generics.borrow();
-            self.convert_generic_args(&func_data.args, generics, &map)
+            self.convert_generic_args(&func_data.args, generics, &map, overload_pos as i64)
         };
 
         match &self.ensure_monomorphized(&func_data.return_type) {
@@ -829,8 +822,34 @@ impl Gen {
         let space_taken = self.gen_args(&args, func_data, &generic_copy, &new_args, is_rvo);
 
         if func_data.generic.len() > 0 {
-            let generic_data = self.generic_func.get(&name).unwrap().clone();
-            name = self.transform_generic_name(&name, &generic_copy);
+            let generic_candidates = self.generic_func.get(&name).unwrap().clone();
+            let generic_data = generic_candidates
+                .iter()
+                .find(|stmt| match &stmt.ty {
+                    StmtType::GenericInitFunc {
+                        generic_types,
+                        args,
+                        ..
+                    } => {
+                        args.len() == func_data.args.len()
+                            && generic_types.len() == func_data.generic.len()
+                            && args.iter().zip(func_data.args.iter()).all(
+                                |(decl_arg, resolved_arg)| {
+                                    let decl_ty = self.resolve_generic_inst(&decl_arg.ty);
+                                    let resolved_ty = self.resolve_generic_inst(&resolved_arg.ty);
+                                    check_types(&decl_ty, &resolved_ty)
+                                },
+                            )
+                    }
+                    _ => false,
+                })
+                .expect(&format!(
+                    "no matching generic definition for function '{}'",
+                    name
+                ))
+                .clone();
+
+            name = transform_generic_name(&name, &generic_copy, overload_pos as i64);
             if self.functions.get(&name).is_none() {
                 let res_func_data = FuncData {
                     args: new_args.clone(),
@@ -847,7 +866,7 @@ impl Gen {
                         ..
                     } => {
                         let mut generic_data: HashMap<String, Type> = HashMap::new();
-                        for i in 0..generic_data.len() {
+                        for i in 0..generic_types.len() {
                             let generic_var = generic_types[i].clone();
                             let generic_ty = generics[i].clone();
                             generic_data.insert(generic_var, generic_ty);
@@ -874,18 +893,23 @@ impl Gen {
 
     pub fn generic_to_ty(&self, ty: &Type, type_map: &HashMap<String, Type>) -> Type {
         match ty {
-            Type::GenericType(name) => {
-                return type_map.get(name).cloned().unwrap();
-            }
+            Type::GenericType(name) => type_map.get(name).cloned().unwrap_or(ty.clone()),
             Type::Array(arr_ty, size) => {
                 let res = self.generic_to_ty(arr_ty, type_map);
-                return res;
+                Type::Array(Box::new(res), *size)
             }
             Type::Pointer(ptr_ty) => {
                 let res = self.generic_to_ty(ptr_ty, type_map);
-                return res;
+                Type::Pointer(Box::new(res))
             }
-            _ => return ty.clone(),
+            Type::GenericInst(name, type_args) => {
+                let resolved_args: Vec<Type> = type_args
+                    .iter()
+                    .map(|arg| self.generic_to_ty(arg, type_map))
+                    .collect();
+                Type::GenericInst(name.clone(), resolved_args)
+            }
+            _ => ty.clone(),
         }
     }
 
@@ -910,7 +934,7 @@ impl Gen {
     }
 
     fn gen_generic_struct(&mut self, fields: &Vec<(String, Expr)>, struct_name: &String) -> String {
-        let struct_data = self.structs.get(struct_name).unwrap().clone();
+        let struct_data = self.structs.borrow().get(struct_name).unwrap().clone();
 
         let mut type_map: HashMap<String, Type> = HashMap::new();
         for (index, (_, field)) in struct_data.elements.iter().enumerate() {
@@ -942,14 +966,14 @@ impl Gen {
         let size = self.compute_struct_size(&fields);
 
         // Register if not already monomorphized
-        if !self.structs.contains_key(&name) {
+        if !self.structs.borrow().contains_key(&name) {
             let new_data = StructData {
                 name: name.clone(),
                 generic_type: Vec::new(),
                 elements: new_elements,
                 size,
             };
-            self.structs.insert(name.clone(), new_data);
+            self.structs.borrow_mut().insert(name.clone(), new_data);
         }
 
         name
@@ -962,12 +986,13 @@ impl Gen {
     ) -> String {
         let mut struct_data = self
             .structs
+            .borrow()
             .get(struct_name)
             .expect("Unknown struct")
             .clone();
         if struct_data.generic_type.len() > 0 {
             let name = self.gen_generic_struct(fields, struct_name);
-            struct_data = self.structs.get(&name).unwrap().clone();
+            struct_data = self.structs.borrow().get(&name).unwrap().clone();
         }
         let base_pos = self.stack_pos;
         let mut offset = 0;
@@ -1061,6 +1086,7 @@ impl Gen {
                 };
                 let inner_field = self
                     .structs
+                    .borrow()
                     .get(&struct_name)
                     .unwrap()
                     .elements
@@ -1086,6 +1112,7 @@ impl Gen {
         };
         let field = self
             .structs
+            .borrow()
             .get(&struct_name)
             .unwrap()
             .elements
@@ -1257,9 +1284,9 @@ impl Gen {
         match ty {
             Type::GenericInst(_, _) => {
                 let mangled = type_name(ty);
-                if self.structs.contains_key(&mangled) {
+                if self.structs.borrow().contains_key(&mangled) {
                     Type::Struct(mangled)
-                } else if self.enums.contains_key(&mangled) {
+                } else if self.enums.borrow().contains_key(&mangled) {
                     Type::Enum(mangled, None)
                 } else {
                     self::panic!("GenericInst not yet monomorphized: {:?}", ty)
@@ -1272,7 +1299,7 @@ impl Gen {
 
     pub fn enum_get_size(&self, base: &String) -> usize {
         let mut size = 0;
-        let enum_data = self.enums.get(base).unwrap();
+        let enum_data = self.enums.borrow().get(base).cloned().unwrap();
         for (name, data) in enum_data.variants.iter() {
             let mut res_size = 0;
             for i in data.args.iter() {
@@ -1322,6 +1349,7 @@ impl Gen {
         let mut base = base.clone();
         let enum_data = self
             .enums
+            .borrow()
             .get(&base)
             .expect(&format!("no enum with name {}", base))
             .clone();
@@ -1386,6 +1414,7 @@ impl Gen {
 
         let enum_data = self
             .enums
+            .borrow()
             .get(&base)
             .expect(&format!("no enum with name {}", base))
             .clone();

@@ -54,11 +54,13 @@ impl<'a> Parser<'a> {
 
     fn parse_break(&mut self) -> Option<Stmt> {
         self.expect(TokenType::Break);
+        self.expect(TokenType::Semi);
         return Some(self.type_to_stmt(StmtType::Break));
     }
 
     fn parse_continue(&mut self) -> Option<Stmt> {
         self.expect(TokenType::Continue);
+        self.expect(TokenType::Semi);
         return Some(self.type_to_stmt(StmtType::Continue));
     }
 

@@ -18,7 +18,7 @@ use super::*;
 
 impl<'a> Lookup for Analyzer<'a> {
     fn look_var(&self, name: &String) -> Option<Type> {
-        if self.structs.get(name).is_some() {
+        if self.structs.borrow().get(name).is_some() {
             return Some(Type::Struct(name.clone()));
         } else {
             self.lookup(name)
@@ -38,7 +38,7 @@ impl<'a> Lookup for Analyzer<'a> {
         coerce_numeric(&lty, &rty)
     }
     fn look_struct_init(&self, struct_name: &String) -> Type {
-        if let Some(_struct_data) = self.structs.get(struct_name) {
+        if let Some(_struct_data) = self.structs.borrow().get(struct_name) {
             Type::Struct(struct_name.clone())
         } else {
             self::panic!("Struct {} not found in get_type", struct_name);
@@ -77,7 +77,7 @@ impl<'a> Lookup for Analyzer<'a> {
             },
             _ => self::panic!("member access on non-struct {:?}", base_ty),
         };
-        let struct_data = self.structs.get(&struct_name).unwrap();
+        let struct_data = self.structs.borrow().get(&struct_name).cloned().unwrap();
         let field = struct_data.elements.get(name).unwrap();
         field.ty.clone()
     }
@@ -90,7 +90,7 @@ impl<'a> Lookup for Analyzer<'a> {
                 existing.clone()
             } else {
                 let func_data = self.functions.get(&func_name).unwrap()[0].clone();
-                let generic_map = build_generic_map(func_data.generic.clone(), generics.clone());
+                let generic_map = build_generic_map(&func_data.generic, generics);
                 {
                     *self.generics.borrow_mut() = generic_map.clone();
                 }
@@ -173,9 +173,9 @@ impl<'a> Analyzer<'a> {
         match ty {
             Type::GenericInst(_, _) => {
                 let mangled = type_name(ty);
-                if self.structs.contains_key(&mangled) {
+                if self.structs.borrow().contains_key(&mangled) {
                     Type::Struct(mangled)
-                } else if self.enums.contains_key(&mangled) {
+                } else if self.enums.borrow().contains_key(&mangled) {
                     Type::Enum(mangled, None)
                 } else {
                     self::panic!("GenericInst not yet monomorphized: {:?}", ty)
@@ -388,9 +388,9 @@ impl<'a> Analyzer<'a> {
 
                 let normal_name = self.transform_generic_name(name, &resolved_inner);
 
-                if self.structs.contains_key(&normal_name) {
+                if self.structs.borrow().contains_key(&normal_name) {
                     Type::Struct(normal_name)
-                } else if self.enums.contains_key(&normal_name) {
+                } else if self.enums.borrow().contains_key(&normal_name) {
                     Type::Enum(normal_name, None)
                 } else {
                     self::panic!("Generic struct not monomorphized yet: {}", normal_name);
@@ -501,6 +501,7 @@ impl<'a> Analyzer<'a> {
     fn check_struct_expr(&mut self, struct_name: &String, fields: &Vec<(String, Expr)>) -> Type {
         let struct_data = self
             .structs
+            .borrow()
             .get(struct_name)
             .expect(&format!("no struct with name: {}", struct_name))
             .clone();
@@ -541,7 +542,7 @@ impl<'a> Analyzer<'a> {
         let base = self.ensure_monomorphized(&base);
         match base {
             Type::Struct(struct_name) => {
-                let res = self.structs.get(&struct_name);
+                let res = self.structs.borrow().get(&struct_name).cloned();
                 if let Some(struct_data) = res {
                     let name_res = struct_data.elements.get(name);
                     if let Some(arg) = name_res {
@@ -637,7 +638,9 @@ impl<'a> Analyzer<'a> {
     ) -> Type {
         let enum_data = self
             .enums
+            .borrow()
             .get(base)
+            .cloned()
             .expect(&format!("no enums with name: {}\n{:?}", base, self.enums));
         let variant_data = enum_data
             .variants

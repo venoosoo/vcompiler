@@ -5,12 +5,12 @@ use crate::Ir::{
 };
 
 pub trait TypeContext {
-    fn ensure_monomorphized(&mut self, ty: &Type) -> Type;
-    fn monomorphize_enum(&mut self, def: &EnumData, type_args: &Vec<Type>) -> Type;
-    fn monomorphize_struct(&mut self, def: &StructData, type_args: &Vec<Type>) -> Type;
+    fn ensure_monomorphized(&self, ty: &Type) -> Type;
+    fn monomorphize_enum(&self, def: &EnumData, type_args: &Vec<Type>) -> Type;
+    fn monomorphize_struct(&self, def: &StructData, type_args: &Vec<Type>) -> Type;
     fn field_alignment(&self, ty: &Type) -> usize;
     fn resolve_call(
-        &mut self,
+        &self,
         name: &String,
         args: &Vec<Expr>,
         generics: &Vec<Type>,

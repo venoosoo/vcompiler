@@ -289,19 +289,66 @@ pub fn same_signedness(l: &Type, r: &Type) -> bool {
 }
 
 pub fn build_generic_map(
-    generic_names: Vec<String>,
-    concrete_types: Vec<Type>,
+    generic_names: &Vec<String>,
+    concrete_types: &Vec<Type>,
 ) -> HashMap<String, Type> {
-    if generic_names.len() != concrete_types.len() {
+    if generic_names.len() > concrete_types.len() {
+        dbg!(generic_names);
+        dbg!(concrete_types);
         panic!(
-            "Generic argument mismatch: expected {} arguments, found {}",
+            "Generic argument mismatch: expected at least {} arguments, found {}",
             generic_names.len(),
             concrete_types.len()
         );
     }
 
     generic_names
-        .into_iter()
-        .zip(concrete_types.into_iter())
+        .iter()
+        .cloned()
+        .zip(concrete_types.iter().cloned())
         .collect()
+}
+
+pub fn transform_generic_name(name: &String, generics: &Vec<Type>, overload_pos: i64) -> String {
+    let mut new_generics = Vec::new();
+    for i in generics {
+        match i {
+            Type::GenericType(name) => {}
+            _ => new_generics.push(i),
+        }
+    }
+    if generics.len() <= 0 {
+        return if overload_pos < 0 {
+            name.clone()
+        } else {
+            format!("{}__{}", name, overload_pos)
+        };
+    }
+
+    if overload_pos < 0 {
+        // struct/enum path — unchanged, no overload disambiguation
+        let mangled = format!(
+            "{}__{}",
+            name,
+            generics
+                .iter()
+                .map(|t| type_name(t))
+                .collect::<Vec<_>>()
+                .join("_")
+        );
+        mangled
+    } else {
+        // function path — append overload position for disambiguation
+        let mangled = format!(
+            "{}__{}__{}",
+            name,
+            generics
+                .iter()
+                .map(|t| type_name(t))
+                .collect::<Vec<_>>()
+                .join("_"),
+            overload_pos
+        );
+        mangled
+    }
 }
