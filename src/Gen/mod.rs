@@ -325,6 +325,35 @@ impl Gen {
         }
     }
 
+
+    pub fn build_generic_map(
+        &self,
+        generic_names: &Vec<String>,
+        concrete_types: &Vec<Type>,
+    ) -> HashMap<String, Type> {
+        if generic_names.len() > concrete_types.len() {
+            dbg!(generic_names);
+            dbg!(concrete_types);
+            panic!(
+                "Generic argument mismatch: expected at least {} arguments, found {}",
+                generic_names.len(),
+                concrete_types.len()
+            );
+        }
+
+        let existing_map = self.generics.borrow();
+
+        generic_names
+            .iter()
+            .cloned()
+            .zip(
+                concrete_types
+                    .iter()
+                    .map(|t| self.generic_to_ty(t, &existing_map)),
+            )
+            .collect()
+    }
+
     pub fn find_overload(
         &self,
         vec_func_data: &Vec<FuncData>,
@@ -341,13 +370,13 @@ impl Gen {
                 args.iter().enumerate().all(|(i, expr)| {
                     let expr_ty = expr.get_type(self);
                     let param_ty = &func.args[i].ty.clone();
-                    let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let (expr_ty, param_ty) = {
-                        let map = build_generic_map(&func.generic, generics);
+                        let map = self.build_generic_map(&func.generic, generics);
                         let expr_ty: Type = self.generic_to_ty(&expr_ty, &map);
                         let param_ty = self.generic_to_ty(param_ty, &map);
                         (expr_ty, param_ty)
                     };
+                    let expr_ty = self.ensure_monomorphized(&expr_ty);
                     let param_ty = self.ensure_monomorphized(&param_ty);
                     let arg_matches = match &expr.ty {
                         ExprType::Number(_) => {

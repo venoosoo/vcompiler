@@ -95,11 +95,10 @@ impl Lookup for Gen {
 
         let vec_func_data: Vec<FuncData> = if generics.len() > 0 {
             let (func_data, overload_pos) = self.resolve_call(name, args, generics).unwrap();
-            let new_name = transform_generic_name(&func_name, generics, 0);
+            let new_name = transform_generic_name(&func_name, generics, overload_pos as i64);
             if let Some(existing) = self.functions.get(&new_name) {
                 existing.clone()
             } else {
-                let func_data = self.functions.get(&func_name).unwrap()[0].clone();
                 let generic_map = build_generic_map(&func_data.generic, generics);
                 {
                     *self.generics.borrow_mut() = generic_map.clone();
@@ -109,11 +108,7 @@ impl Lookup for Gen {
 
                 let ret_type: Type = match &func_data.return_type {
                     Type::GenericType(name) => {
-                        let pos = func_data
-                            .generic
-                            .iter()
-                            .position(|g| g == name)
-                            .expect(&format!("non existing generic var: {}", name));
+                        let pos = func_data.generic.iter().position(|g| g == name).unwrap();
                         generics[pos].clone()
                     }
                     _ => func_data.return_type.clone(),
@@ -144,7 +139,6 @@ impl Lookup for Gen {
                 "no matching overload for function '{}'",
                 func_name
             ));
-
         func_data.return_type.clone()
     }
     fn look_array_init(&self, elements: &Vec<Expr>) -> Type {
@@ -851,10 +845,11 @@ impl Gen {
 
             name = transform_generic_name(&name, &generic_copy, overload_pos as i64);
             if self.functions.get(&name).is_none() {
+                let ret_type = self.resolve_type_with_map(&func_data.return_type, &self.generics.borrow(), overload_pos as i64);
                 let res_func_data = FuncData {
                     args: new_args.clone(),
                     generic: Vec::new(),
-                    return_type: func_data.return_type.clone(),
+                    return_type: ret_type,
                 };
                 self.functions.insert(name.clone(), vec![res_func_data]);
                 match generic_data.ty {

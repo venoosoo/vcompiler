@@ -21,7 +21,9 @@ impl Gen {
     }
 
     fn gen_declaration(&mut self, data: &Declaration) {
-        let data_ty = self.ensure_monomorphized(&data.ty);
+        let data_ty = self.generic_to_ty(&data.ty, &self.generics.borrow());
+        let data_ty = self.ensure_monomorphized(&data_ty);
+
         let data_ty = match data_ty {
             Type::GenericType(name) => {
                 let map = self.generics.borrow();
