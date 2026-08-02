@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
 };
 
 use clap::builder::Str;
@@ -16,6 +16,7 @@ use crate::Ir::{
 pub struct Analyzer<'a> {
     pub stmts: &'a Vec<Stmt>,
     pub had_error: Cell<bool>,
+    pub computing: RefCell<HashSet<String>>,
     pub scopes: Vec<HashMap<String, Type>>,
     pub generics: RefCell<HashMap<String, Type>>,
     pub global_vars: HashMap<String, Type>,

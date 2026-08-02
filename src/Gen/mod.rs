@@ -1,6 +1,7 @@
 use core::panic;
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::io::Take;
 use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Write};
 use std::{dbg, matches};
@@ -251,6 +252,7 @@ impl Gen {
             data_code: Vec::new(),
             scopes: vec![HashMap::new()],
             stack_pos: 0,
+            computing: RefCell::new(HashSet::new()),
             contniue_stack: Vec::new(),
             break_stack: Vec::new(),
             structs: RefCell::new(HashMap::new()),
@@ -289,7 +291,7 @@ impl Gen {
             }
 
             Type::Unknown | Type::GenericInst(..) => return None,
-            Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(..) => 8,
+            Type::Pointer(_) | Type::Array(_, _) | Type::Struct(_) | Type::Enum(..) | Type::Named(..) => 8,
         };
 
         match (base, size) {
@@ -324,7 +326,6 @@ impl Gen {
             _ => None,
         }
     }
-
 
     pub fn build_generic_map(
         &self,
@@ -402,8 +403,7 @@ impl Gen {
             },
             Type::Pointer(_) => "QWORD".to_string(), // 64-bit pointer
             Type::Array(_, _) => "QWORD".to_string(), // arrays decay to pointer for memory access
-            Type::Struct(struct_name) => "QWORD".to_string(),
-            Type::Enum(..) => "QWORD".to_string(),
+            Type::Struct(..) | Type::Enum(..) | Type::Named(..) => "QWORD".to_string(),
             Type::GenericType(name) => {
                 let res = {
                     let map = self.generics.borrow();
@@ -548,31 +548,166 @@ impl Gen {
                         .push(i.clone());
                 }
                 StmtType::InitStruct(data) => {
-                    self.gen_init_struct(&data);
+                    self.structs.borrow_mut().insert(
+                        data.name.clone(),
+                        StructData {
+                            name: data.name.clone(),
+                            generic_type: data.generic_type.clone(),
+                            elements: data
+                                .fields
+                                .iter()
+                                .map(|f| (f.name.clone(), f.clone()))
+                                .collect(),
+                            size: 0, // placeholder
+                        },
+                    );
                 }
                 StmtType::InitEnum {
                     name,
                     variants,
                     generic_types,
                 } => {
-                    let mut max_size = 0;
-                    for (_, data) in variants.iter() {
-                        if max_size < data.size {
-                            max_size = data.size
-                        }
-                    }
-
-                    let enum_data = EnumData {
-                        name: name.clone(),
-                        generic_type: generic_types.clone(),
-                        variants: variants.clone(),
-                        size: max_size + 8,
-                    };
-                    self.enums.borrow_mut().insert(name.clone(), enum_data);
+                    self.enums.borrow_mut().insert(
+                        name.clone(),
+                        EnumData {
+                            name: name.clone(),
+                            generic_type: generic_types.clone(),
+                            variants: variants.clone(),
+                            size: 0, // placeholder
+                        },
+                    );
                 }
                 _ => {}
             }
         }
+
+    
+        let struct_names: Vec<String> = self.structs.borrow().keys().cloned().collect();
+        for name in struct_names {
+            let is_generic = self.structs.borrow().get(&name)
+                .map(|s| !s.generic_type.is_empty())
+                .unwrap_or(false);
+            if is_generic {
+                continue;
+            }
+            self.ensure_struct_sized(&name);
+        }
+
+        let enum_names: Vec<String> = self.enums.borrow().keys().cloned().collect();
+        for name in enum_names {
+            let is_generic = self.enums.borrow().get(&name)
+                .map(|e| !e.generic_type.is_empty())
+                .unwrap_or(false);
+            if is_generic {
+                continue;
+            }
+            self.ensure_enum_sized(&name);
+        }
+    }
+
+    fn ensure_struct_sized(&self, name: &str) -> usize {
+        if let Some(existing) = self.structs.borrow().get(name) {
+            if !existing.generic_type.is_empty() {
+                panic!("attempted to size generic template `{}` directly, must be monomorphized first",name);
+            }
+            if existing.size > 0 {
+                return existing.size;
+            }
+        }
+
+        if self.computing.borrow().contains(name) {
+            panic!("recursive struct without indirection: {}", name);
+        }
+        self.computing.borrow_mut().insert(name.to_string());
+
+        let raw_fields: Vec<StructField> = self
+            .structs
+            .borrow()
+            .get(name)
+            .unwrap()
+            .elements
+            .values()
+            .cloned()
+            .collect();
+
+        let size = self.compute_struct_size(&raw_fields);
+
+        let mut offset = 0;
+        let mut computed_fields = Vec::new();
+        for f in raw_fields {
+            let ty = self.ensure_monomorphized(&f.ty);
+            let align = self.field_alignment(&ty);
+            let field_size = self.type_size(&ty);
+            offset = (offset + align - 1) & !(align - 1);
+            computed_fields.push(StructField { offset, ty, ..f });
+            offset += field_size;
+        }
+        {
+            let mut structs = self.structs.borrow_mut();
+            let entry = structs.get_mut(name).unwrap();
+            entry.elements = computed_fields
+                .iter()
+                .map(|f| (f.name.clone(), f.clone()))
+                .collect();
+            entry.size = size;
+        }
+
+        self.computing.borrow_mut().remove(name);
+        size
+    }
+
+    fn ensure_enum_sized(&self, name: &str) -> usize {
+        
+        if let Some(existing) = self.enums.borrow().get(name) {
+            if !existing.generic_type.is_empty() {
+                panic!("attempted to size generic template `{}` directly, must be monomorphized first",name);
+            }
+            if existing.size > 0 {
+                return existing.size;
+            }
+        }
+
+        if self.computing.borrow().contains(name) {
+            panic!("recursive enum without indirection: {}", name);
+        }
+        self.computing.borrow_mut().insert(name.to_string());
+
+        let raw_variants: HashMap<String, EnumVariant> =
+            self.enums.borrow().get(name).unwrap().variants.clone();
+
+        let mut max_size = TAG_SIZE; // tag size
+        let mut computed_variants = HashMap::new();
+        for (var_name, variant) in raw_variants {
+            let mut offset = TAG_SIZE;
+            let mut computed_args = Vec::new();
+            for arg in variant.args {
+                let field_size = self.type_size(&arg.ty);
+                computed_args.push(StructField { offset, ..arg });
+                offset += field_size;
+            }
+            let variant_size = offset;
+            if variant_size > max_size {
+                max_size = variant_size;
+            }
+            computed_variants.insert(
+                var_name.clone(),
+                EnumVariant {
+                    args: computed_args,
+                    size: variant_size,
+                    ..variant
+                },
+            );
+        }
+
+        {
+            let mut enums = self.enums.borrow_mut();
+            let entry = enums.get_mut(name).unwrap();
+            entry.variants = computed_variants;
+            entry.size = max_size;
+        }
+
+        self.computing.borrow_mut().remove(name);
+        max_size
     }
 
     fn gen_stmts(&mut self) {

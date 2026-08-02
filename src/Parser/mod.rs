@@ -95,6 +95,8 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(&mut self) -> Vec<Stmt> {
+        self.reg_types();
+
         while !self.m_tokens.is_empty() {
             if let Some(stmt) = self.parse_stmt() {
                 self.expressions.push(stmt);
@@ -109,6 +111,21 @@ impl<'a> Parser<'a> {
         }
 
         self.expressions.clone()
+    }
+
+    pub fn reg_types(&mut self) {
+        let mut i = 0;
+        while i < self.m_tokens.len() {
+            let tok = &self.m_tokens[i];
+            if tok.token == TokenType::Struct || tok.token == TokenType::Enum {
+                if let Some(name_tok) = self.m_tokens.get(i + 1) {
+                    if let Some(name) = &name_tok.value {
+                        self.types.insert(name.clone());
+                    }
+                }
+            }
+            i += 1;
+        }
     }
 
     fn size_of(&self, ty: &Type) -> usize {

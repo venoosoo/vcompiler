@@ -845,7 +845,11 @@ impl Gen {
 
             name = transform_generic_name(&name, &generic_copy, overload_pos as i64);
             if self.functions.get(&name).is_none() {
-                let ret_type = self.resolve_type_with_map(&func_data.return_type, &self.generics.borrow(), overload_pos as i64);
+                let ret_type = self.resolve_type_with_map(
+                    &func_data.return_type,
+                    &self.generics.borrow(),
+                    overload_pos as i64,
+                );
                 let res_func_data = FuncData {
                     args: new_args.clone(),
                     generic: Vec::new(),

@@ -17,6 +17,9 @@ pub enum Type {
     Pointer(Box<Type>),
     Array(Box<Type>, usize),
     Struct(String),
+    // the type in which we dont know yet
+    // if its struct or enum
+    Named(String),
     /// name, variant name
     Enum(String, Option<String>),
     GenericType(String),

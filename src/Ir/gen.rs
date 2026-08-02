@@ -1,4 +1,7 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+};
 
 use indexmap::IndexMap;
 
@@ -28,6 +31,8 @@ pub struct Gen {
     pub generics: RefCell<HashMap<String, Type>>,
     pub scopes: Vec<HashMap<String, VarData>>,
     pub global_vars: HashMap<String, VarData>,
+    // for struct/enums resolving
+    pub computing: RefCell<HashSet<String>>,
     pub func_header: String,
     pub func_data: String,
     pub func_out: String,

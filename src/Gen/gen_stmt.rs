@@ -689,20 +689,23 @@ impl Gen {
             },
             Type::Pointer(_) => 8,
             Type::Array(elem_type, count) => self.type_size(elem_type) * count,
-            Type::Struct(name) => {
-                self.structs
-                    .borrow()
-                    .get(name)
-                    .expect(&format!("Unknown struct: {}", name))
-                    .size
-            }
-            Type::Enum(name, _) => self.enum_get_size(name),
+            Type::Struct(name) => self.ensure_struct_sized(name),
+            Type::Enum(name, _) => self.ensure_enum_sized(name),
             Type::GenericType(name) => {
                 let ty = {
                     let map = self.generics.borrow();
                     map.get(name).cloned().unwrap()
                 };
                 self.type_size(&ty)
+            }
+            Type::Named(name) => {
+                if self.structs.borrow().contains_key(name) {
+                    self.ensure_struct_sized(name)
+                } else if self.enums.borrow().contains_key(name) {
+                    self.ensure_enum_sized(name)
+                } else {
+                    self::panic!("unknown type: {}", name);
+                }
             }
             Type::Unknown | Type::GenericInst(..) => {
                 println!("{:?}", ty);

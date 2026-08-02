@@ -1,7 +1,7 @@
 use core::panic;
 use std::fs::File;
 use std::io::Read;
-use std::{backtrace, env};
+use std::{backtrace, dbg, env};
 
 use super::*;
 use crate::Ir::expr::{Expr, ExprType};
@@ -162,10 +162,9 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenType::OpenScope);
 
-        let mut offset = 8;
-
         while self.peek(0).token != TokenType::CloseScope {
             let ty = self.get_type();
+            let ty = self.parse_generic_types(ty);
             let index = self.parse_ptr();
             let name = self.consume().value.unwrap();
             let ty = self.parse_array(ty);
@@ -174,11 +173,9 @@ impl<'a> Parser<'a> {
 
             args.push(StructField {
                 name,
-                offset,
+                offset: 0, // placeholder real offset computed later in Gen
                 ty: ty.clone(),
             });
-
-            offset += self.size_of(&ty);
         }
         self.expect(TokenType::CloseScope);
 
@@ -186,7 +183,7 @@ impl<'a> Parser<'a> {
             name,
             args,
             tag,
-            size: offset,
+            size: 0, // placeholder real size computed lazily in Gen/Analyzer
         };
     }
 
@@ -226,31 +223,27 @@ impl<'a> Parser<'a> {
     fn parse_enum(&mut self) -> Option<Stmt> {
         self.expect(TokenType::Enum);
         let name = self.consume().value.unwrap();
+        self.types.insert(name.clone());
         let generic = self.parse_generic();
         self.expect(TokenType::OpenScope);
         let mut variants: HashMap<String, EnumVariant> = HashMap::new();
         let mut tag = 0;
-        let mut max_size = 8; // the min would be the tag_size
         while self.peek(0).token != TokenType::CloseScope {
             let res: EnumVariant = self.parse_enum_field(tag);
             tag += 1;
-            if res.size > max_size {
-                max_size = res.size
-            };
             if self.peek(0).token == TokenType::Coma {
                 self.expect(TokenType::Coma);
             }
             variants.insert(res.name.clone(), res);
         }
         self.expect(TokenType::CloseScope);
-        self.types.insert(name.clone());
         self.enums_table.insert(
             name.clone(),
             EnumData {
                 generic_type: generic.clone(),
                 name: name.clone(),
                 variants: variants.clone(),
-                size: max_size,
+                size: 0, // placeholder — real size computed lazily in Gen
             },
         );
         return Some(self.type_to_stmt(StmtType::InitEnum {
@@ -322,7 +315,7 @@ impl<'a> Parser<'a> {
     pub fn get_type(&mut self) -> Type {
         let token = self.consume();
         if token.token == TokenType::Var {
-            // hello again unwrap at  none value
+            // i will make parser error system one day
             // dbg!(&token);
             let name = self.types.get(&token.value.unwrap()).unwrap();
             if self.struct_table.get(name).is_some() {
@@ -332,7 +325,7 @@ impl<'a> Parser<'a> {
             } else if self.generic.get(name).is_some() {
                 return Type::GenericType(name.clone());
             } else {
-                return Type::Unknown;
+                return Type::Named(name.to_string());
             }
         } else {
             return Type::Primitive(token.token);
@@ -480,11 +473,11 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::Struct);
 
         let struct_name = self.consume().value.unwrap();
+        self.types.insert(struct_name.clone()); // registered before body, so self-refs parse fine
         let generic = self.parse_generic();
         self.expect(TokenType::OpenScope);
 
         let mut fields: Vec<StructField> = Vec::new();
-        let mut offset: usize = 0;
 
         while self.peek(0).token != TokenType::CloseScope {
             let pre_ptr = self.parse_ptr();
@@ -498,29 +491,22 @@ impl<'a> Parser<'a> {
 
             self.expect(TokenType::Semi);
 
-            let field_size = self.size_of(&ty);
-
             fields.push(StructField {
                 name: field_name,
                 ty: ty.clone(),
-                offset,
+                offset: 0, // placeholder — real offset computed later, once all types are known
             });
-
-            offset += field_size;
         }
 
         self.expect(TokenType::CloseScope);
-
-        let struct_size = offset;
 
         let def = StructDef {
             name: struct_name.clone(),
             generic_type: generic,
             fields,
-            size: struct_size,
+            size: 0, // placeholder — real size computed later in Gen
         };
 
-        self.types.insert(struct_name.clone());
         self.struct_table.insert(struct_name.clone(), def.clone());
         Some(self.type_to_stmt(StmtType::InitStruct(def)))
     }

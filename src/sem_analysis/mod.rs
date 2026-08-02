@@ -1,11 +1,11 @@
 use core::panic;
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     dbg,
     env::var,
     fmt::{self, write},
-    write,
+    format, write,
 };
 
 use indexmap::IndexMap;
@@ -143,6 +143,8 @@ impl fmt::Display for SemanticError {
         }
     }
 }
+
+const TAG_SIZE: usize = 8;
 
 impl<'a> TypeContext for Analyzer<'a> {
     fn resolve_call(
@@ -347,6 +349,7 @@ impl<'a> Analyzer<'a> {
             had_error: Cell::new(false),
             scopes: vec![HashMap::new()], // start with global scope
             functions: HashMap::new(),
+            computing: RefCell::new(HashSet::new()),
             break_stack: Vec::new(),
             contniue_stack: Vec::new(),
             structs: RefCell::new(HashMap::new()),
@@ -393,20 +396,25 @@ impl<'a> Analyzer<'a> {
             },
             Type::Pointer(_) => 8,
             Type::Array(elem_type, count) => self.type_size(elem_type),
-            Type::Struct(name) => {
-                self.structs
-                    .borrow()
-                    .get(name)
-                    .expect(&format!("Unknown struct: {}", name))
-                    .size
+            Type::Struct(name) => self.ensure_struct_sized(name),
+            Type::Named(name) => {
+                if self.structs.borrow().contains_key(name) {
+                    self.ensure_struct_sized(name)
+                } else if self.enums.borrow().contains_key(name) {
+                    self.ensure_enum_sized(name)
+                } else {
+                    panic!("unknown type: {}", name);
+                }
             }
             Type::GenericInst(str, ty) => panic!("generic inst isnt monomorphized"),
             Type::GenericType(name) => {
                 // TODO: make the self.generic the same as in gen and fix this
                 8
             }
-            Type::Enum(..) => 8,
-            Type::Unknown => panic!("unkown type"),
+            Type::Enum(name, _) => self.ensure_enum_sized(name),
+            Type::Unknown => {
+                panic!("unkown type")
+            }
         }
     }
 
@@ -419,6 +427,120 @@ impl<'a> Analyzer<'a> {
         );
 
         self.had_error.set(true);
+    }
+
+    fn ensure_struct_sized(&self, name: &str) -> usize {
+        if let Some(existing) = self.structs.borrow().get(name) {
+            if existing.size > 0 {
+                return existing.size;
+            }
+        }
+
+        if self.computing.borrow().contains(name) {
+            panic!("recursive struct without indirection: {}", name);
+        }
+        self.computing.borrow_mut().insert(name.to_string());
+
+        let raw_fields: Vec<StructField> = self
+            .structs
+            .borrow()
+            .get(name)
+            .unwrap()
+            .elements
+            .values()
+            .cloned()
+            .collect();
+
+        let size = self.compute_struct_size(&raw_fields);
+
+        let mut offset = 0;
+        let mut computed_fields = Vec::new();
+        for f in raw_fields {
+            let ty = self.ensure_monomorphized(&f.ty);
+            let align = self.field_alignment(&ty);
+            let field_size = self.type_size(&ty);
+            offset = (offset + align - 1) & !(align - 1);
+            computed_fields.push(StructField { offset, ty, ..f });
+            offset += field_size;
+        }
+        {
+            let mut structs = self.structs.borrow_mut();
+            let entry = structs.get_mut(name).unwrap();
+            entry.elements = computed_fields
+                .iter()
+                .map(|f| (f.name.clone(), f.clone()))
+                .collect();
+            entry.size = size;
+        }
+
+        self.computing.borrow_mut().remove(name);
+        size
+    }
+
+    fn ensure_enum_sized(&self, name: &str) -> usize {
+        if let Some(existing) = self.enums.borrow().get(name) {
+            if existing.size > 0 {
+                return existing.size;
+            }
+        }
+
+        if self.computing.borrow().contains(name) {
+            panic!("recursive enum without indirection: {}", name);
+        }
+        self.computing.borrow_mut().insert(name.to_string());
+
+        let raw_variants: HashMap<String, EnumVariant> =
+            self.enums.borrow().get(name).unwrap().variants.clone();
+
+        let mut max_size = TAG_SIZE; // tag size
+        let mut computed_variants = HashMap::new();
+        for (var_name, variant) in raw_variants {
+            let mut offset = TAG_SIZE;
+            let mut computed_args = Vec::new();
+            for arg in variant.args {
+                let field_size = self.type_size(&arg.ty);
+                computed_args.push(StructField { offset, ..arg });
+                offset += field_size;
+            }
+            let variant_size = offset;
+            if variant_size > max_size {
+                max_size = variant_size;
+            }
+            computed_variants.insert(
+                var_name.clone(),
+                EnumVariant {
+                    args: computed_args,
+                    size: variant_size,
+                    ..variant
+                },
+            );
+        }
+
+        {
+            let mut enums = self.enums.borrow_mut();
+            let entry = enums.get_mut(name).unwrap();
+            entry.variants = computed_variants;
+            entry.size = max_size;
+        }
+
+        self.computing.borrow_mut().remove(name);
+        max_size
+    }
+
+    pub fn reg_inits(&mut self, stmts: &Vec<Stmt>) {
+        for stmt in stmts.iter() {
+            self.check_init(stmt);
+        }
+
+        let struct_names: Vec<String> = self.structs.borrow().keys().cloned().collect();
+        for name in struct_names {
+            self.ensure_struct_sized(&name);
+        }
+
+        let enum_names: Vec<String> = self.enums.borrow().keys().cloned().collect();
+        for name in enum_names {
+            self.ensure_enum_sized(&name);
+        }
     }
 
     pub fn check_init(&mut self, stmt: &Stmt) {
@@ -463,17 +585,17 @@ impl<'a> Analyzer<'a> {
                 self.check_init(data);
             }
             StmtType::InitStruct(data) => {
+                // register shape only — no size computation yet
                 let fields = data
                     .fields
                     .iter()
                     .map(|f| (f.name.clone(), f.clone()))
                     .collect::<IndexMap<_, _>>();
 
-                let size = self.compute_struct_size(&data.fields);
                 let struct_data = StructData {
                     name: data.name.clone(),
                     generic_type: data.generic_type.clone(),
-                    size,
+                    size: 0, // placeholder
                     elements: fields,
                 };
                 self.structs
@@ -485,11 +607,12 @@ impl<'a> Analyzer<'a> {
                 variants,
                 generic_types,
             } => {
+                // register shape only — no size computation yet
                 let enum_data = EnumData {
                     name: name.clone(),
                     generic_type: generic_types.clone(),
                     variants: variants.clone(),
-                    size: 0,
+                    size: 0, // placeholder
                 };
                 self.enums.borrow_mut().insert(name.clone(), enum_data);
             }
@@ -542,8 +665,7 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn check_code(&mut self) {
-        //first iteration to get all structs and func data
-        self.check_inits();
+        self.reg_inits(self.stmts);
         // checking of every stmt
         for i in self.stmts.iter() {
             self.check_stmt(i);
