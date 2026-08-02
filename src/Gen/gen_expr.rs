@@ -1,5 +1,5 @@
 use std::fmt::format;
-use std::{dbg, vec};
+use std::{dbg, format, vec};
 
 use indexmap::IndexMap;
 
@@ -1296,21 +1296,6 @@ impl Gen {
         }
     }
 
-    pub fn enum_get_size(&self, base: &String) -> usize {
-        let mut size = 0;
-        let enum_data = self.enums.borrow().get(base).cloned().unwrap();
-        for (name, data) in enum_data.variants.iter() {
-            let mut res_size = 0;
-            for i in data.args.iter() {
-                res_size += self.type_size(&i.ty);
-            }
-            if res_size > size {
-                size = res_size;
-            }
-        }
-        // accounting for tag
-        size + TAG_SIZE
-    }
 
     fn handle_generic_enum(
         &mut self,
@@ -1343,23 +1328,38 @@ impl Gen {
         base: &String,
         value: &Vec<EnumExprField>,
         variant: &String,
+        expected_type: &Type
     ) -> String {
-        let pos = self.stack_pos;
-        let mut base = base.clone();
+        let mut concrete_base = base.clone();
+
+        if let Type::Enum(expected_name,_) = expected_type {
+            concrete_base = expected_name.clone();
+        } else {
+            let base_enum_data = self
+                .enums
+                .borrow()
+                .get(base)
+                .expect(&format!("no enum with name {}", base))
+                .clone();
+                
+            if base_enum_data.generic_type.len() > 0 {
+                concrete_base = self.handle_generic_enum(&base_enum_data, value, variant);
+            }
+        }
+
         let enum_data = self
             .enums
             .borrow()
-            .get(&base)
-            .expect(&format!("no enum with name {}", base))
+            .get(&concrete_base)
+            .expect(&format!("no instantiated enum with name {}", concrete_base))
             .clone();
-        if enum_data.generic_type.len() > 0 {
-            base = self.handle_generic_enum(&enum_data, value, variant);
-        }
+
         let variant_data = enum_data
             .variants
             .get(variant)
-            .expect(&format!("in enum {} no field {}", base, variant));
-        // if we have value its creating an object
+            .expect(&format!("in enum {} no field {}", concrete_base, variant));
+
+        let pos = self.stack_pos; 
 
         if value.is_empty() {
             self.emit_func_data(format!(
@@ -1375,29 +1375,33 @@ impl Gen {
 
         for (index, var) in variant_data.args.clone().iter().enumerate() {
             let res = &value[index];
+            
             let mut var_ty = var.ty.clone();
-            match var.ty {
-                Type::GenericType(_) => {
-                    var_ty = res.expr.get_type(self);
-                }
-                _ => {}
+            if let Type::GenericType(_) = var.ty {
+                var_ty = res.expr.get_type(self);
             }
+            
             self.eval_expr(&res.expr, &var_ty);
+            
             let reg = self.reg_for_size("rax", &var_ty).unwrap();
             let word = self.get_word(&var_ty);
+            
             match &var_ty {
-                Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) => {
+                Type::Primitive(_) | Type::Array(..) | Type::Pointer(_) | Type::Enum(..) | Type::Struct(_) => {
                     self.emit_func_data(format!(
                         "    mov {} [rbp - {}], {}",
                         word,
-                        self.stack_pos - var.offset,
-                        reg
+                        pos - var.offset, 
+                        reg,
                     ));
                 }
-                _ => {}
+                _ => {
+                    self::panic!("gen_get_enum_addr: Unsupported type for enum field");
+                }
             }
         }
-        self.emit_func_data(format!("    lea rax, [rbp - {pos}]"));
+        
+        self.emit_func_data(format!("    lea rax, [rbp - {}]", pos));
 
         return "rax".to_string();
     }

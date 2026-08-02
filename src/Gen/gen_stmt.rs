@@ -338,16 +338,14 @@ impl Gen {
                     variant,
                     value,
                 } => {
-                    let enum_data = self.enums.borrow().get(base).cloned().unwrap();
-                    self.alloc(enum_data.size);
-                    self.gen_get_enum_addr(base, value, variant);
+                    self.alloc(self.type_size(&ret_type));
+                    self.gen_get_enum_addr(base, value, variant,&ret_type);
                 }
                 ExprType::StructInit {
                     struct_name_ty,
                     fields,
                 } => {
-                    let struct_data = self.structs.borrow().get(struct_name_ty).cloned().unwrap();
-                    self.alloc(struct_data.size);
+                    self.alloc(self.type_size(&ret_type));
                     self.eval_expr(ret_expr, &ret_type);
                 }
                 _ => {
