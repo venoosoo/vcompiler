@@ -393,7 +393,7 @@ impl<'a> Analyzer<'a> {
                 } else if self.enums.borrow().contains_key(&normal_name) {
                     Type::Enum(normal_name, None)
                 } else {
-                    self::panic!("Generic struct not monomorphized yet: {}", normal_name);
+                    self.ensure_monomorphized(ty)
                 }
             }
             Type::GenericType(name) => generic_map
@@ -491,7 +491,7 @@ impl<'a> Analyzer<'a> {
                 return return_ty;
             } else {
                 let data = self.functions.get(&name).unwrap();
-                // the generic function overload is not possible i think and why you need it anyway
+                // TODO: do something here maybe
                 return data[0].return_type.clone();
             }
         }

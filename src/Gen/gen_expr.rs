@@ -768,7 +768,7 @@ impl Gen {
         let mut name = name.clone();
         let mut generic_copy = generics.clone();
         let mut is_rvo = false; // return value optimization
-
+        let map_copy = self.generics.borrow().clone();
         for (index, generic) in func_data.generic.iter().enumerate() {
             let ty = &generic_copy[index].clone();
             match ty {
@@ -793,6 +793,7 @@ impl Gen {
                 _ => {}
             }
             let mut map = self.generics.borrow_mut();
+
             map.insert(generic.clone(), generic_copy[index].clone());
         }
 
@@ -829,8 +830,8 @@ impl Gen {
                             && generic_types.len() == func_data.generic.len()
                             && args.iter().zip(func_data.args.iter()).all(
                                 |(decl_arg, resolved_arg)| {
-                                    let decl_ty = self.resolve_generic_inst(&decl_arg.ty);
-                                    let resolved_ty = self.resolve_generic_inst(&resolved_arg.ty);
+                                    let decl_ty = decl_arg.ty.clone();
+                                    let resolved_ty = resolved_arg.ty.clone();
                                     check_types(&decl_ty, &resolved_ty)
                                 },
                             )
@@ -887,6 +888,7 @@ impl Gen {
         }
         self.stack_pos = stack_pos_save;
         self.current_return_type = saved_ret_type;
+        self.generics.replace(map_copy);
         return "rax".to_string();
     }
 
@@ -1411,25 +1413,38 @@ impl Gen {
         base: &String,
         value: &Vec<EnumExprField>,
         variant: &String,
+        expected_type: &Type
     ) -> String {
-        let pos = self.alloc(TAG_SIZE);
-        let mut base = base.clone();
+        let pos = self.alloc(self.type_size(expected_type));
+        let mut concrete_base = base.clone();
+
+        if let Type::Enum(expected_name,_) = expected_type {
+            concrete_base = expected_name.clone();
+        } else {
+            let base_enum_data = self
+                .enums
+                .borrow()
+                .get(base)
+                .expect(&format!("no enum with name {}", base))
+                .clone();
+                
+            if base_enum_data.generic_type.len() > 0 {
+                concrete_base = self.handle_generic_enum(&base_enum_data, value, variant);
+            }
+        }
+
 
         let enum_data = self
             .enums
             .borrow()
-            .get(&base)
-            .expect(&format!("no enum with name {}", base))
+            .get(&concrete_base)
+            .expect(&format!("no instantiated enum with name {}", concrete_base))
             .clone();
-
-        if enum_data.generic_type.len() > 0 {
-            base = self.handle_generic_enum(&enum_data, value, variant);
-        }
 
         let variant_data = enum_data
             .variants
             .get(variant)
-            .expect(&format!("in enum {} no field {}", base, variant));
+            .expect(&format!("in enum {} no field {}", concrete_base, variant));
 
         self.emit_func_data(format!("    mov rax, {}", variant_data.tag));
 
@@ -1524,7 +1539,7 @@ impl Gen {
                 base,
                 value,
                 variant,
-            } => self.gen_get_enum(base, value, variant),
+            } => self.gen_get_enum(base, value, variant,expected_type),
         }
     }
 }
